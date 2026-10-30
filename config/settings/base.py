@@ -41,7 +41,13 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
-    # Applications will be registered in Phase 2
+    "accounts",
+    "devices",
+    "monitoring",
+    "analytics",
+    "alerts",
+    "topology",
+    "dashboard",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

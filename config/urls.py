@@ -1,5 +1,6 @@
 """
 URL configuration for NetPulse project.
+All API routes are namespaced under /api/
 """
 from django.contrib import admin
 from django.urls import path, include
@@ -9,7 +10,7 @@ from django.http import JsonResponse
 
 
 def health_check(request):
-    """Basic health check view confirming system and database connectivity."""
+    """Basic health check confirming system and live database connectivity."""
     from django.db import connection
 
     db_status = "healthy"
@@ -32,6 +33,27 @@ def health_check(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health_check, name="system-health"),
+
+    # Accounts & Authentication
+    path("api/accounts/", include("accounts.urls")),
+
+    # Device Management
+    path("api/", include("devices.urls")),
+
+    # Monitoring Engine (metrics, interfaces)
+    path("api/monitoring/", include("monitoring.urls")),
+
+    # Alert Management
+    path("api/", include("alerts.urls")),
+
+    # Traffic & Performance Analytics
+    path("api/analytics/", include("analytics.urls")),
+
+    # Network Topology
+    path("api/topology/", include("topology.urls")),
+
+    # NOC Dashboard Aggregated Stats
+    path("api/dashboard/", include("dashboard.urls")),
 ]
 
 if settings.DEBUG:
