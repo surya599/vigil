@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ object.name }} – NetPulse{% endblock %}
+{% block page_title %}Delete Device{% endblock %}
+{% block nav_devices %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-5">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2" style="color:var(--noc-offline);">
+        <i data-lucide="alert-triangle" style="width:14px;height:14px;"></i>
+        Confirm Deletion
+      </div>
+      <div class="p-4 text-center">
+        <div class="mb-3" style="font-size:3rem;">⚠️</div>
+        <h5 class="mb-2">Delete "{{ object.name }}"?</h5>
+        <p style="color:var(--noc-muted);font-size:.875rem;" class="mb-4">
+          This will permanently delete the device <strong>{{ object.name }}</strong>
+          (<code>{{ object.ip_address }}</code>) and <strong>all its monitoring history</strong>,
+          metrics, interfaces, and alerts. This action cannot be undone.
+        </p>
+        <div class="d-flex gap-2 justify-content-center">
+          <form method="post">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger fw-600">
+              <i data-lucide="trash-2" style="width:14px;height:14px;"></i> Yes, Delete Permanently
+            </button>
+          </form>
+          <a href="{% url 'devices:device-detail' object.pk %}" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

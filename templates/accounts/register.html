@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Register User – NetPulse{% endblock %}
+{% block page_title %}Register New User{% endblock %}
+{% block nav_users %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i data-lucide="user-plus" style="width:15px;height:15px;"></i>
+        Create NOC Account
+      </div>
+      <div class="p-4">
+        <form method="post" novalidate>
+          {% csrf_token %}
+
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">First Name *</label>
+              {{ form.first_name }}
+              {% if form.first_name.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.first_name.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Last Name *</label>
+              {{ form.last_name }}
+              {% if form.last_name.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.last_name.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Username *</label>
+              {{ form.username }}
+              {% if form.username.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.username.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Email *</label>
+              {{ form.email }}
+              {% if form.email.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.email.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Password *</label>
+              {{ form.password1 }}
+              {% if form.password1.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.password1.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Confirm Password *</label>
+              {{ form.password2 }}
+              {% if form.password2.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.password2.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-6">
+              <label class="form-label">NOC Role *</label>
+              {{ form.role }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Department</label>
+              {{ form.department }}
+            </div>
+            <div class="col-12">
+              <label class="form-label">Phone Number</label>
+              {{ form.phone_number }}
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-noc-primary">
+              <i data-lucide="user-plus" style="width:14px;height:14px;"></i> Create Account
+            </button>
+            <a href="{% url 'accounts:user-list' %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

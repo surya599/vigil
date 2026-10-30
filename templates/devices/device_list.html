@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Network Devices – NetPulse{% endblock %}
+{% block page_title %}Network Devices{% endblock %}
+{% block nav_devices %}active{% endblock %}
+
+{% block content %}
+<!-- Summary Bar -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card d-flex align-items-center gap-3">
+      <div class="stat-icon" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="server" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div>
+        <div class="stat-value" style="font-size:1.6rem;">{{ total_devices }}</div>
+        <div class="stat-label">Total Devices</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card d-flex align-items-center gap-3">
+      <div class="stat-icon" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="wifi" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div>
+        <div class="stat-value" style="font-size:1.6rem;color:var(--noc-online);">{{ online_count }}</div>
+        <div class="stat-label">Online</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card d-flex align-items-center gap-3">
+      <div class="stat-icon" style="background:rgba(248,81,73,.12);">
+        <i data-lucide="wifi-off" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div>
+        <div class="stat-value" style="font-size:1.6rem;color:var(--noc-offline);">{{ offline_count }}</div>
+        <div class="stat-label">Offline</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card d-flex align-items-center gap-3">
+      <div class="stat-icon" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="alert-triangle" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div>
+        <div class="stat-value" style="font-size:1.6rem;color:var(--noc-warning);">{{ warning_count }}</div>
+        <div class="stat-label">Warning</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="noc-card mb-4">
+  <div class="p-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="form-label mb-1">Search</label>
+        <input type="text" name="q" value="{{ search_query }}" class="form-control form-control-sm"
+               placeholder="Name, IP, location, MAC…">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label mb-1">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if val == status_filter %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label mb-1">Device Type</label>
+        <select name="device_type" class="form-select form-select-sm">
+          <option value="">All Types</option>
+          {% for val, label in device_type_choices %}
+          <option value="{{ val }}" {% if val == device_type_filter %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill">Filter</button>
+        <a href="{% url 'devices:device-list' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Action Row -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <small class="text-muted">
+    Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ paginator.count }} device{{ paginator.count|pluralize }}
+  </small>
+  {% if request.user.profile.is_operator %}
+  <a href="{% url 'devices:device-create' %}" class="btn btn-sm btn-noc-primary">
+    <i data-lucide="plus" style="width:14px;height:14px;"></i> Add Device
+  </a>
+  {% endif %}
+</div>
+
+<!-- Device Table -->
+<div class="noc-table mb-4">
+  <table class="table table-dark table-hover mb-0">
+    <thead>
+      <tr>
+        <th>Device</th>
+        <th>IP Address</th>
+        <th>Type</th>
+        <th>Location</th>
+        <th>Status</th>
+        <th>Latency</th>
+        <th>Packet Loss</th>
+        <th>Last Checked</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for device in devices %}
+      {% with m=device.latest_metric %}
+      <tr>
+        <td>
+          <div class="fw-600" style="font-weight:600;">{{ device.name }}</div>
+          {% if device.mac_address %}<div style="font-size:.7rem;color:var(--noc-muted);">{{ device.mac_address }}</div>{% endif %}
+        </td>
+        <td><code style="font-size:.8rem;color:var(--noc-accent);">{{ device.ip_address }}</code></td>
+        <td style="color:var(--noc-muted);font-size:.82rem;">{{ device.get_device_type_display }}</td>
+        <td style="color:var(--noc-muted);font-size:.82rem;">{{ device.location|default:"—" }}</td>
+        <td>
+          <span class="badge rounded-pill px-2 py-1 badge-{{ device.status }}">
+            {% if device.status == 'online' %}● {% elif device.status == 'offline' %}● {% else %}● {% endif %}
+            {{ device.get_status_display }}
+          </span>
+        </td>
+        <td style="font-size:.82rem;">
+          {% if m and m.latency is not None %}
+            <span class="{% if m.latency > 300 %}text-danger{% elif m.latency > 100 %}text-warning{% else %}text-success{% endif %}">
+              {{ m.latency|floatformat:1 }} ms
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:.82rem;">
+          {% if m %}
+            <span class="{% if m.packet_loss > 25 %}text-danger{% elif m.packet_loss > 5 %}text-warning{% else %}text-success{% endif %}">
+              {{ m.packet_loss|floatformat:1 }}%
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:.75rem;color:var(--noc-muted);">
+          {% if device.last_checked %}{{ device.last_checked|timesince }} ago{% else %}Never{% endif %}
+        </td>
+        <td>
+          <div class="d-flex gap-1">
+            <a href="{% url 'devices:device-detail' device.pk %}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:.2rem .5rem;">
+              <i data-lucide="eye" style="width:11px;height:11px;"></i>
+            </a>
+            {% if request.user.profile.is_operator %}
+            <a href="{% url 'devices:device-edit' device.pk %}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:.2rem .5rem;">
+              <i data-lucide="edit-2" style="width:11px;height:11px;"></i>
+            </a>
+            <a href="{% url 'devices:device-delete' device.pk %}" class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:.2rem .5rem;">
+              <i data-lucide="trash-2" style="width:11px;height:11px;"></i>
+            </a>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endwith %}
+      {% empty %}
+      <tr>
+        <td colspan="9" class="text-center py-5" style="color:var(--noc-muted);">
+          <i data-lucide="server-off" style="width:32px;height:32px;margin-bottom:.5rem;display:block;margin-inline:auto;"></i>
+          No devices found. {% if request.user.profile.is_operator %}<a href="{% url 'devices:device-create' %}">Add the first device</a>.{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if is_paginated %}
+<nav>
+  <ul class="pagination pagination-sm justify-content-end">
+    {% if page_obj.has_previous %}<li class="page-item"><a class="page-link" href="?{% if search_query %}q={{ search_query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}page={{ page_obj.previous_page_number }}">‹ Prev</a></li>{% endif %}
+    <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+    {% if page_obj.has_next %}<li class="page-item"><a class="page-link" href="?{% if search_query %}q={{ search_query }}&{% endif %}{% if status_filter %}status={{ status_filter }}&{% endif %}page={{ page_obj.next_page_number }}">Next ›</a></li>{% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

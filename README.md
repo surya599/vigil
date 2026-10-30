@@ -105,9 +105,9 @@ NetPulse/
 | Phase | Description | Status |
 |---|---|---|
 | **Phase 1** | **Project setup, virtual environment, dependencies & PostgreSQL connection** | **COMPLETED** |
-| Phase 2 | Django applications, database models, relationships & migrations | *Pending Approval* |
-| Phase 3 | Authentication, operator/admin roles & device CRUD management | *Upcoming* |
-| Phase 4 | Professional dark NOC dashboard frontend & Django integration | *Upcoming* |
+| **Phase 2** | **Django applications, database models, relationships & migrations** | **COMPLETED** |
+| **Phase 3** | **Authentication, operator/admin roles & device CRUD management** | **COMPLETED** |
+| Phase 4 | Professional dark NOC dashboard frontend & Django integration | *Upcoming / Next* |
 | Phase 5 | ICMP monitoring engine (ping, latency, packet loss calculation) | *Upcoming* |
 | Phase 6 | SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth) | *Upcoming* |
 | Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming* |

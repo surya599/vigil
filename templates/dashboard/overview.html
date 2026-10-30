@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Overview – NetPulse{% endblock %}
+{% block page_title %}NOC Overview{% endblock %}
+{% block nav_overview %}active{% endblock %}
+
+{% block content %}
+<!-- ── Stat Cards ─────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <!-- Total Devices -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="server" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ total_devices }}</div>
+      <div class="stat-label">Total Devices</div>
+    </div>
+  </div>
+  <!-- Online -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="wifi" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-online);">{{ online_devices }}</div>
+      <div class="stat-label">Online</div>
+    </div>
+  </div>
+  <!-- Offline -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.12);">
+        <i data-lucide="wifi-off" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-offline);">{{ offline_devices }}</div>
+      <div class="stat-label">Offline</div>
+    </div>
+  </div>
+  <!-- Avg Latency -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="timer" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="font-size:1.6rem;">{{ avg_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-label">Avg Latency</div>
+    </div>
+  </div>
+  <!-- Packet Loss -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.08);">
+        <i data-lucide="percent" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="font-size:1.6rem;">{{ avg_packet_loss }}<small style="font-size:.9rem;color:var(--noc-muted);">%</small></div>
+      <div class="stat-label">Avg Packet Loss</div>
+    </div>
+  </div>
+  <!-- Global Uptime -->
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="shield-check" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="font-size:1.6rem;color:var(--noc-online);">{{ global_uptime }}<small style="font-size:.9rem;">%</small></div>
+      <div class="stat-label">Network Uptime</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Lower Grid ─────────────────────────────────────── -->
+<div class="row g-4">
+  <!-- Recent Devices -->
+  <div class="col-lg-7">
+    <div class="noc-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="server" style="width:13px;height:13px;"></i> Recent Devices</span>
+        <a href="{% url 'devices:device-list' %}" style="font-size:.72rem;color:var(--noc-accent);">View All →</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-dark table-hover mb-0" style="font-size:.8rem;">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>IP</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Latency</th>
+              <th>Last Check</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for device in recent_devices %}
+            {% with m=device.latest_metric %}
+            <tr>
+              <td>
+                <a href="{% url 'devices:device-detail' device.pk %}"
+                   style="color:var(--noc-text);text-decoration:none;font-weight:500;">
+                  {{ device.name }}
+                </a>
+              </td>
+              <td><code style="font-size:.75rem;color:var(--noc-muted);">{{ device.ip_address }}</code></td>
+              <td style="color:var(--noc-muted);">{{ device.get_device_type_display }}</td>
+              <td>
+                <span class="badge rounded-pill px-2 badge-{{ device.status }}" style="font-size:.7rem;">
+                  ● {{ device.get_status_display }}
+                </span>
+              </td>
+              <td style="font-size:.78rem;">
+                {% if m and m.latency %}
+                  <span class="{% if m.latency > 300 %}text-danger{% elif m.latency > 100 %}text-warning{% else %}text-success{% endif %}">
+                    {{ m.latency|floatformat:1 }}ms
+                  </span>
+                {% else %}—{% endif %}
+              </td>
+              <td style="color:var(--noc-muted);font-size:.72rem;">
+                {% if device.last_checked %}{{ device.last_checked|timesince }} ago{% else %}Never{% endif %}
+              </td>
+            </tr>
+            {% endwith %}
+            {% empty %}
+            <tr><td colspan="6" class="text-center py-4" style="color:var(--noc-muted);">
+              No devices registered. <a href="{% url 'devices:device-create' %}">Add one now</a>.
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Alerts -->
+  <div class="col-lg-5">
+    <div class="noc-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+          <i data-lucide="bell" style="width:13px;height:13px;"></i>
+          Active Alerts
+          {% if active_alerts_count > 0 %}
+          <span class="badge bg-danger ms-1" style="font-size:.65rem;">{{ active_alerts_count }}</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="p-3">
+        {% for alert in recent_alerts %}
+        <div class="d-flex gap-2 p-2 rounded mb-2 alert-{{ alert.severity }}"
+             style="background:rgba(255,255,255,.03);">
+          <div class="mt-1" style="flex-shrink:0;">
+            {% if alert.severity == 'critical' %}
+              <i data-lucide="alert-circle" style="width:13px;height:13px;color:var(--noc-offline);"></i>
+            {% elif alert.severity == 'warning' %}
+              <i data-lucide="alert-triangle" style="width:13px;height:13px;color:var(--noc-warning);"></i>
+            {% else %}
+              <i data-lucide="info" style="width:13px;height:13px;color:var(--noc-accent);"></i>
+            {% endif %}
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:.78rem;font-weight:600;">{{ alert.device.name }}</div>
+            <div style="font-size:.72rem;color:var(--noc-muted);">{{ alert.get_alert_type_display }}</div>
+          </div>
+          <div style="font-size:.68rem;color:var(--noc-muted);white-space:nowrap;flex-shrink:0;">
+            {{ alert.created_at|timesince }} ago
+          </div>
+        </div>
+        {% empty %}
+        <div class="text-center py-4" style="color:var(--noc-muted);">
+          <i data-lucide="check-circle" style="width:28px;height:28px;color:var(--noc-online);display:block;margin:0 auto .5rem;"></i>
+          <div style="font-size:.82rem;">No active alerts</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Auto-refresh stats every 30 seconds via API
+(function liveStats() {
+  async function refresh() {
+    try {
+      const r = await fetch("{% url 'dashboard:stats' %}");
+      if (!r.ok) return;
+      const d = await r.json();
+      // Stats will be populated by WebSocket in Phase 8
+      // console.log("Stats refresh:", d);
+    } catch(e) {}
+  }
+  setInterval(refresh, 30000);
+})();
+</script>
+{% endblock %}

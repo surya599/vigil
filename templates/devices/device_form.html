@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}{{ form_title }} – NetPulse{% endblock %}
+{% block page_title %}{{ form_title }}{% endblock %}
+{% block nav_devices %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i data-lucide="server" style="width:14px;height:14px;"></i>
+        {{ form_title }}
+      </div>
+      <div class="p-4">
+        <form method="post" novalidate id="device-form">
+          {% csrf_token %}
+
+          <!-- Section: Core Details -->
+          <h6 class="mb-3" style="color:var(--noc-muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">Device Identification</h6>
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label">Device Name *</label>
+              {{ form.name }}
+              {% if form.name.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.name.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">IP Address *</label>
+              {{ form.ip_address }}
+              {% if form.ip_address.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.ip_address.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Device Type *</label>
+              {{ form.device_type }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">MAC Address <span style="color:var(--noc-muted);">(optional)</span></label>
+              {{ form.mac_address }}
+              {% if form.mac_address.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.mac_address.errors|join:" " }}</div>{% endif %}
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Location <span style="color:var(--noc-muted);">(optional)</span></label>
+              {{ form.location }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Poll Interval (seconds)</label>
+              {{ form.polling_interval }}
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description <span style="color:var(--noc-muted);">(optional)</span></label>
+              {{ form.description }}
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.monitoring_enabled }}
+                <label class="form-check-label" for="{{ form.monitoring_enabled.id_for_label }}"
+                  style="font-size:.85rem;color:var(--noc-text);">
+                  Enable automated monitoring for this device
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <hr style="border-color:var(--noc-border);" />
+
+          <!-- Section: SNMP -->
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <h6 class="mb-0" style="color:var(--noc-muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">SNMP Telemetry</h6>
+            <div class="form-check mb-0">
+              {{ form.snmp_enabled }}
+              <label class="form-check-label" for="{{ form.snmp_enabled.id_for_label }}"
+                style="font-size:.82rem;color:var(--noc-text);">Enable SNMP polling</label>
+            </div>
+          </div>
+
+          <div id="snmp-config" style="display:none;">
+            <div class="row g-3 mb-3">
+              <div class="col-md-4">
+                <label class="form-label">SNMP Version</label>
+                {{ form.snmp_version }}
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">SNMP Port</label>
+                {{ form.snmp_port }}
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Community String <span style="color:var(--noc-muted);">(v2c)</span></label>
+                {{ form.snmp_community }}
+              </div>
+            </div>
+            <div id="snmpv3-fields" style="display:none;">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">SNMPv3 Username</label>
+                  {{ form.snmp_v3_user }}
+                  {% if form.snmp_v3_user.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.snmp_v3_user.errors|join:" " }}</div>{% endif %}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Auth Protocol</label>
+                  {{ form.snmp_v3_auth_protocol }}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Auth Passphrase</label>
+                  {{ form.snmp_v3_auth_key }}
+                  {% if form.snmp_v3_auth_key.errors %}<div class="text-danger mt-1" style="font-size:.78rem;">{{ form.snmp_v3_auth_key.errors|join:" " }}</div>{% endif %}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Privacy Protocol</label>
+                  {{ form.snmp_v3_priv_protocol }}
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Privacy Passphrase</label>
+                  {{ form.snmp_v3_priv_key }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Submit -->
+          <div class="d-flex gap-2 mt-4 pt-3" style="border-top:1px solid var(--noc-border);">
+            <button type="submit" class="btn btn-noc-primary">
+              <i data-lucide="save" style="width:14px;height:14px;"></i> {{ form_action }}
+            </button>
+            <a href="{% url 'devices:device-list' %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const snmpToggle = document.getElementById("id_snmp_enabled");
+  const snmpSection = document.getElementById("snmp-config");
+  const versionSelect = document.getElementById("id_snmp_version");
+  const v3Fields = document.getElementById("snmpv3-fields");
+
+  function toggleSNMP() {
+    snmpSection.style.display = snmpToggle.checked ? "block" : "none";
+    toggleV3();
+  }
+  function toggleV3() {
+    if (versionSelect) {
+      v3Fields.style.display = (snmpToggle.checked && versionSelect.value === "v3") ? "block" : "none";
+    }
+  }
+
+  snmpToggle?.addEventListener("change", toggleSNMP);
+  versionSelect?.addEventListener("change", toggleV3);
+
+  // Initialise on load
+  toggleSNMP();
+})();
+</script>
+{% endblock %}

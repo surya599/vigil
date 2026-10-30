@@ -1,69 +1,122 @@
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
-from rest_framework import permissions
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import render
+from django.views import View
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from datetime import timedelta
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework import permissions
+
 from devices.models import Device
 from monitoring.models import DeviceMetric
 from alerts.models import Alert
+from analytics.models import NetworkTrafficSnapshot
+
+
+class DashboardOverviewView(LoginRequiredMixin, View):
+    """
+    Main NOC dashboard overview page.
+    All statistics are computed from live database records.
+    """
+    template_name = "dashboard/overview.html"
+    login_url = "accounts:login"
+
+    def get(self, request):
+        # Device summary counts
+        total_devices = Device.objects.count()
+        online_devices = Device.objects.filter(status=Device.Status.ONLINE).count()
+        offline_devices = Device.objects.filter(status=Device.Status.OFFLINE).count()
+        warning_devices = Device.objects.filter(status=Device.Status.WARNING).count()
+        unknown_devices = Device.objects.filter(status=Device.Status.UNKNOWN).count()
+
+        # Performance: rolling 5-minute window averages
+        since = timezone.now() - timedelta(minutes=5)
+        recent = DeviceMetric.objects.filter(
+            recorded_at__gte=since,
+            status=DeviceMetric.Status.ONLINE,
+            latency__isnull=False,
+        )
+        avg_latency = recent.aggregate(v=Avg("latency"))["v"] or 0.0
+        avg_packet_loss = recent.aggregate(v=Avg("packet_loss"))["v"] or 0.0
+
+        # Global uptime
+        uptime_agg = Device.objects.filter(
+            monitoring_enabled=True
+        ).aggregate(v=Avg("uptime_percentage"))
+        global_uptime = uptime_agg["v"] or 100.0
+
+        # Active alerts
+        active_alerts = Alert.objects.filter(is_resolved=False)
+        critical_alerts = active_alerts.filter(severity=Alert.Severity.CRITICAL)[:5]
+        recent_alerts = active_alerts.order_by("-created_at")[:8]
+
+        # Recently updated devices
+        recent_devices = Device.objects.order_by("-last_checked")[:10]
+
+        # Last 12 traffic snapshots for the mini-chart
+        traffic_data = list(
+            reversed(
+                list(NetworkTrafficSnapshot.objects.order_by("-recorded_at")[:12])
+            )
+        )
+
+        ctx = {
+            "total_devices": total_devices,
+            "online_devices": online_devices,
+            "offline_devices": offline_devices,
+            "warning_devices": warning_devices,
+            "unknown_devices": unknown_devices,
+            "avg_latency": round(avg_latency, 1),
+            "avg_packet_loss": round(avg_packet_loss, 2),
+            "global_uptime": round(global_uptime, 2),
+            "active_alerts_count": active_alerts.count(),
+            "critical_alerts": critical_alerts,
+            "recent_alerts": recent_alerts,
+            "recent_devices": recent_devices,
+            "traffic_data": traffic_data,
+        }
+        return render(request, self.template_name, ctx)
 
 
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def dashboard_stats(request):
-    """
-    Aggregated dashboard statistics - all values are dynamically computed
-    from live database records. No hardcoded values.
-    """
-    total_devices = Device.objects.count()
-    online_devices = Device.objects.filter(status=Device.Status.ONLINE).count()
-    offline_devices = Device.objects.filter(status=Device.Status.OFFLINE).count()
-    warning_devices = Device.objects.filter(status=Device.Status.WARNING).count()
-    unknown_devices = Device.objects.filter(status=Device.Status.UNKNOWN).count()
-
-    # Network-wide latency/packet-loss averages over the last 5 minutes
+    """REST API version of dashboard statistics — consumed by frontend JS."""
     since = timezone.now() - timedelta(minutes=5)
-    recent_metrics = DeviceMetric.objects.filter(
+    recent = DeviceMetric.objects.filter(
         recorded_at__gte=since,
         status=DeviceMetric.Status.ONLINE,
         latency__isnull=False,
     )
-    latency_agg = recent_metrics.aggregate(avg=Avg("latency"))
-    packet_loss_agg = recent_metrics.aggregate(avg=Avg("packet_loss"))
+    avg_latency = recent.aggregate(v=Avg("latency"))["v"] or 0.0
+    avg_packet_loss = recent.aggregate(v=Avg("packet_loss"))["v"] or 0.0
 
-    avg_latency = round(latency_agg["avg"] or 0.0, 2)
-    avg_packet_loss = round(packet_loss_agg["avg"] or 0.0, 2)
-
-    # Active (unresolved) alert counts by severity
-    active_alerts = Alert.objects.filter(is_resolved=False)
-    critical_alerts = active_alerts.filter(severity=Alert.Severity.CRITICAL).count()
-    warning_alerts = active_alerts.filter(severity=Alert.Severity.WARNING).count()
-
-    # Global uptime percentage (average across all devices)
     uptime_agg = Device.objects.filter(monitoring_enabled=True).aggregate(
-        avg=Avg("uptime_percentage")
+        v=Avg("uptime_percentage")
     )
-    global_uptime = round(uptime_agg["avg"] or 100.0, 2)
+
+    active_alerts = Alert.objects.filter(is_resolved=False)
 
     return Response({
         "devices": {
-            "total": total_devices,
-            "online": online_devices,
-            "offline": offline_devices,
-            "warning": warning_devices,
-            "unknown": unknown_devices,
+            "total": Device.objects.count(),
+            "online": Device.objects.filter(status=Device.Status.ONLINE).count(),
+            "offline": Device.objects.filter(status=Device.Status.OFFLINE).count(),
+            "warning": Device.objects.filter(status=Device.Status.WARNING).count(),
+            "unknown": Device.objects.filter(status=Device.Status.UNKNOWN).count(),
         },
         "performance": {
-            "avg_latency_ms": avg_latency,
-            "avg_packet_loss_pct": avg_packet_loss,
-            "global_uptime_pct": global_uptime,
+            "avg_latency_ms": round(avg_latency, 2),
+            "avg_packet_loss_pct": round(avg_packet_loss, 2),
+            "global_uptime_pct": round(uptime_agg["v"] or 100.0, 2),
         },
         "alerts": {
             "active_total": active_alerts.count(),
-            "critical": critical_alerts,
-            "warning": warning_alerts,
+            "critical": active_alerts.filter(severity=Alert.Severity.CRITICAL).count(),
+            "warning": active_alerts.filter(severity=Alert.Severity.WARNING).count(),
         },
         "meta": {
             "calculated_at": timezone.now().isoformat(),

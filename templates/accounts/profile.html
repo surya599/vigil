@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}My Profile – NetPulse{% endblock %}
+{% block page_title %}User Profile{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Profile Card -->
+  <div class="col-lg-4">
+    <div class="noc-card text-center p-4">
+      <div class="user-avatar mx-auto mb-3" style="width:64px;height:64px;font-size:1.5rem;border-radius:50%;background:var(--noc-accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;">
+        {{ request.user.username|first|upper }}
+      </div>
+      <h5 class="mb-1">{{ request.user.get_full_name|default:request.user.username }}</h5>
+      <p class="mb-2" style="color:var(--noc-muted);font-size:.8rem;">{{ request.user.email }}</p>
+      <span class="badge rounded-pill px-3 py-1"
+        style="background:rgba(88,166,255,.15);color:var(--noc-accent);border:1px solid rgba(88,166,255,.3);font-size:.75rem;">
+        {{ profile.get_role_display }}
+      </span>
+      <hr style="border-color:var(--noc-border);" />
+      <div class="text-start" style="font-size:.8rem;color:var(--noc-muted);">
+        <div class="d-flex justify-content-between mb-1">
+          <span>Department</span>
+          <span style="color:var(--noc-text);">{{ profile.department|default:"—" }}</span>
+        </div>
+        <div class="d-flex justify-content-between mb-1">
+          <span>Phone</span>
+          <span style="color:var(--noc-text);">{{ profile.phone_number|default:"—" }}</span>
+        </div>
+        <div class="d-flex justify-content-between">
+          <span>Email Notifications</span>
+          <span style="color:{% if profile.email_notifications %}var(--noc-online){% else %}var(--noc-muted){% endif %};">
+            {% if profile.email_notifications %}Enabled{% else %}Disabled{% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Form -->
+  <div class="col-lg-8">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i data-lucide="edit-3" style="width:14px;height:14px;"></i>
+        Update Profile
+      </div>
+      <div class="p-4">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">First Name</label>
+              {{ form.first_name }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Last Name</label>
+              {{ form.last_name }}
+            </div>
+            <div class="col-12">
+              <label class="form-label">Email</label>
+              {{ form.email }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Department</label>
+              {{ form.department }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Phone Number</label>
+              {{ form.phone_number }}
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.email_notifications }}
+                <label class="form-check-label" for="{{ form.email_notifications.id_for_label }}"
+                  style="font-size:.85rem;color:var(--noc-text);">
+                  Receive email notifications for critical alerts
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="mt-4">
+            <button type="submit" class="btn btn-noc-primary">
+              <i data-lucide="save" style="width:14px;height:14px;"></i> Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

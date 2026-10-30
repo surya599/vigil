@@ -153,6 +153,13 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 
+# Authentication & session settings
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "dashboard:overview"
+LOGOUT_REDIRECT_URL = "accounts:login"
+SESSION_COOKIE_AGE = 60 * 60 * 2  # 2 hours default
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
 # Monitoring Defaults
 DEFAULT_ICMP_INTERVAL = int(os.environ.get("DEFAULT_ICMP_INTERVAL_SECONDS", 30))
 DEFAULT_SNMP_TIMEOUT = int(os.environ.get("DEFAULT_SNMP_TIMEOUT_SECONDS", 2))

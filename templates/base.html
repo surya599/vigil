@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}NetPulse – Network Monitoring{% endblock %}</title>
+
+  <!-- Bootstrap 5 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── Design Tokens ──────────────────────────────── */
+    :root {
+      --noc-bg:        #0d1117;
+      --noc-surface:   #161b22;
+      --noc-border:    #30363d;
+      --noc-text:      #e6edf3;
+      --noc-muted:     #8b949e;
+      --noc-online:    #3fb950;
+      --noc-offline:   #f85149;
+      --noc-warning:   #d29922;
+      --noc-accent:    #58a6ff;
+      --noc-sidebar-w: 240px;
+    }
+
+    /* ── Base ───────────────────────────────────────── */
+    body { background: var(--noc-bg); color: var(--noc-text); font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── Sidebar ────────────────────────────────────── */
+    #sidebar {
+      width: var(--noc-sidebar-w);
+      min-height: 100vh;
+      background: var(--noc-surface);
+      border-right: 1px solid var(--noc-border);
+      display: flex; flex-direction: column;
+      position: fixed; top: 0; left: 0; z-index: 1000;
+      transition: transform .25s ease;
+    }
+    .sidebar-brand {
+      padding: 1.25rem 1rem;
+      border-bottom: 1px solid var(--noc-border);
+      display: flex; align-items: center; gap: .625rem;
+    }
+    .sidebar-brand .brand-logo {
+      width: 32px; height: 32px;
+      background: var(--noc-accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sidebar-brand h1 { font-size: 1.1rem; font-weight: 700; margin: 0; color: var(--noc-text); }
+    .sidebar-brand small { font-size: .65rem; color: var(--noc-muted); display: block; line-height: 1; }
+
+    .sidebar-nav { flex: 1; padding: .75rem 0; overflow-y: auto; }
+    .sidebar-section { padding: .375rem 1rem; font-size: .65rem; font-weight: 600;
+                       text-transform: uppercase; letter-spacing: .08em; color: var(--noc-muted); margin-top: .5rem; }
+    .sidebar-link {
+      display: flex; align-items: center; gap: .625rem;
+      padding: .5rem 1rem; color: var(--noc-muted);
+      text-decoration: none; font-size: .875rem; font-weight: 500;
+      border-left: 3px solid transparent;
+      transition: all .15s ease;
+    }
+    .sidebar-link:hover { color: var(--noc-text); background: rgba(255,255,255,.05); }
+    .sidebar-link.active { color: var(--noc-accent); background: rgba(88,166,255,.08); border-left-color: var(--noc-accent); }
+    .sidebar-link i { width: 16px; height: 16px; flex-shrink: 0; }
+
+    /* ── Sidebar Footer ─────────────────────────────── */
+    .sidebar-footer {
+      border-top: 1px solid var(--noc-border);
+      padding: .75rem 1rem;
+    }
+    .user-badge { display: flex; align-items: center; gap: .5rem; }
+    .user-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--noc-accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .75rem; font-weight: 700; flex-shrink: 0;
+    }
+    .user-name { font-size: .8rem; font-weight: 600; color: var(--noc-text); line-height: 1.2; }
+    .user-role { font-size: .65rem; color: var(--noc-muted); }
+
+    /* ── Main Content ───────────────────────────────── */
+    #main-content { margin-left: var(--noc-sidebar-w); min-height: 100vh; }
+    #topbar {
+      background: var(--noc-surface);
+      border-bottom: 1px solid var(--noc-border);
+      padding: .75rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 900;
+    }
+    #topbar .page-title { font-size: 1rem; font-weight: 600; margin: 0; }
+    #content-body { padding: 1.5rem; }
+
+    /* ── Status Badges ──────────────────────────────── */
+    .status-online  { color: var(--noc-online);  }
+    .status-offline { color: var(--noc-offline); }
+    .status-warning { color: var(--noc-warning); }
+    .status-unknown { color: var(--noc-muted);   }
+
+    .badge-online  { background: rgba(63,185,80,.15);  color: var(--noc-online);  border: 1px solid rgba(63,185,80,.3);  }
+    .badge-offline { background: rgba(248,81,73,.15);  color: var(--noc-offline); border: 1px solid rgba(248,81,73,.3);  }
+    .badge-warning { background: rgba(210,153,34,.15); color: var(--noc-warning); border: 1px solid rgba(210,153,34,.3); }
+    .badge-unknown { background: rgba(139,148,158,.1); color: var(--noc-muted);   border: 1px solid rgba(139,148,158,.2);}
+
+    /* ── Stat Cards ─────────────────────────────────── */
+    .stat-card {
+      background: var(--noc-surface);
+      border: 1px solid var(--noc-border);
+      border-radius: 10px; padding: 1.25rem;
+      transition: border-color .2s ease;
+    }
+    .stat-card:hover { border-color: var(--noc-accent); }
+    .stat-value { font-size: 2rem; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: .75rem; color: var(--noc-muted); margin-top: .25rem; }
+    .stat-icon {
+      width: 44px; height: 44px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Tables ─────────────────────────────────────── */
+    .noc-table { background: var(--noc-surface); border-radius: 10px; overflow: hidden; border: 1px solid var(--noc-border); }
+    .noc-table table { margin: 0; }
+    .noc-table thead th { background: rgba(255,255,255,.04); border-color: var(--noc-border);
+                          font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--noc-muted); }
+    .noc-table tbody td { border-color: var(--noc-border); vertical-align: middle; font-size: .875rem; }
+    .noc-table tbody tr:hover { background: rgba(255,255,255,.03); }
+
+    /* ── Alerts ─────────────────────────────────────── */
+    .alert-critical { border-left: 3px solid var(--noc-offline); }
+    .alert-warning  { border-left: 3px solid var(--noc-warning); }
+    .alert-info     { border-left: 3px solid var(--noc-accent);  }
+
+    /* ── Cards / Panels ─────────────────────────────── */
+    .noc-card {
+      background: var(--noc-surface);
+      border: 1px solid var(--noc-border);
+      border-radius: 10px;
+    }
+    .noc-card .card-header {
+      background: rgba(255,255,255,.04);
+      border-bottom: 1px solid var(--noc-border);
+      padding: .875rem 1.25rem;
+      font-size: .8rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--noc-muted);
+    }
+
+    /* ── Forms ──────────────────────────────────────── */
+    .form-control, .form-select {
+      background: var(--noc-bg) !important;
+      border-color: var(--noc-border) !important;
+      color: var(--noc-text) !important;
+    }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--noc-accent) !important;
+      box-shadow: 0 0 0 3px rgba(88,166,255,.15) !important;
+    }
+    .form-label { font-size: .8rem; font-weight: 600; color: var(--noc-muted); }
+
+    /* ── Buttons ─────────────────────────────────────── */
+    .btn-noc-primary {
+      background: var(--noc-accent); color: #fff; border: none;
+      border-radius: 6px; font-weight: 600; font-size: .875rem;
+    }
+    .btn-noc-primary:hover { background: #79b8ff; color: #fff; }
+
+    /* ── Toast / Messages ────────────────────────────── */
+    .django-messages { position: fixed; top: 1rem; right: 1rem; z-index: 9999; min-width: 300px; }
+
+    /* ── Responsive: hide sidebar on mobile ──────────── */
+    @media (max-width: 768px) {
+      #sidebar { transform: translateX(-100%); }
+      #sidebar.open { transform: translateX(0); }
+      #main-content { margin-left: 0; }
+    }
+
+    /* ── Live Pulse Indicator ────────────────────────── */
+    .pulse-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--noc-online);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .4; transform: scale(.8); }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────── -->
+<nav id="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    </div>
+    <div>
+      <h1>NetPulse</h1>
+      <small>Network Operations Center</small>
+    </div>
+  </div>
+
+  <div class="sidebar-nav">
+    <div class="sidebar-section">Monitoring</div>
+    <a href="{% url 'dashboard:overview' %}" class="sidebar-link {% block nav_overview %}{% endblock %}">
+      <i data-lucide="layout-dashboard"></i> Overview
+    </a>
+    <a href="{% url 'devices:device-list' %}" class="sidebar-link {% block nav_devices %}{% endblock %}">
+      <i data-lucide="server"></i> Network Devices
+    </a>
+    <a href="#" class="sidebar-link {% block nav_topology %}{% endblock %}">
+      <i data-lucide="git-fork"></i> Topology
+    </a>
+
+    <div class="sidebar-section">Analytics</div>
+    <a href="#" class="sidebar-link {% block nav_traffic %}{% endblock %}">
+      <i data-lucide="activity"></i> Traffic Analytics
+    </a>
+    <a href="#" class="sidebar-link {% block nav_performance %}{% endblock %}">
+      <i data-lucide="trending-up"></i> Performance
+    </a>
+
+    <div class="sidebar-section">Incidents</div>
+    <a href="#" class="sidebar-link {% block nav_alerts %}{% endblock %}">
+      <i data-lucide="bell"></i> Alerts &amp; Notifications
+    </a>
+    <a href="#" class="sidebar-link {% block nav_history %}{% endblock %}">
+      <i data-lucide="clock"></i> History
+    </a>
+
+    <div class="sidebar-section">Administration</div>
+    <a href="#" class="sidebar-link {% block nav_settings %}{% endblock %}">
+      <i data-lucide="settings"></i> Settings
+    </a>
+    {% if request.user.profile.is_admin %}
+    <a href="{% url 'accounts:user-list' %}" class="sidebar-link {% block nav_users %}{% endblock %}">
+      <i data-lucide="users"></i> User Management
+    </a>
+    {% endif %}
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="user-badge">
+      <div class="user-avatar">{{ request.user.username|first|upper }}</div>
+      <div>
+        <div class="user-name">{{ request.user.get_full_name|default:request.user.username }}</div>
+        <div class="user-role">
+          {% if request.user.profile %}{{ request.user.profile.get_role_display }}{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="mt-2 d-flex gap-2">
+      <a href="{% url 'accounts:profile' %}" class="btn btn-sm btn-outline-secondary flex-fill" style="font-size:.75rem;">
+        <i data-lucide="user" style="width:12px;height:12px;"></i> Profile
+      </a>
+      <form method="post" action="{% url 'accounts:logout' %}" class="flex-fill">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-outline-danger w-100" style="font-size:.75rem;">
+          <i data-lucide="log-out" style="width:12px;height:12px;"></i> Logout
+        </button>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main Content ─────────────────────────────────────────────── -->
+<div id="main-content">
+  <!-- Topbar -->
+  <div id="topbar">
+    <div class="d-flex align-items-center gap-3">
+      <button class="btn btn-sm btn-outline-secondary d-md-none" id="sidebar-toggle">
+        <i data-lucide="menu"></i>
+      </button>
+      <h2 class="page-title">{% block page_title %}Dashboard{% endblock %}</h2>
+    </div>
+    <div class="d-flex align-items-center gap-3">
+      <span class="d-flex align-items-center gap-1 text-muted" style="font-size:.75rem;">
+        <span class="pulse-dot"></span> Live
+      </span>
+      <span class="text-muted" style="font-size:.75rem;" id="live-clock"></span>
+    </div>
+  </div>
+
+  <!-- Django Messages -->
+  {% if messages %}
+  <div class="django-messages">
+    {% for message in messages %}
+    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show shadow-sm py-2 px-3"
+         role="alert" style="font-size:.85rem;">
+      {{ message }}
+      <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Page Content -->
+  <div id="content-body">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Lucide icon render
+  lucide.createIcons();
+
+  // Live clock
+  (function clock() {
+    const el = document.getElementById("live-clock");
+    if (el) {
+      const tick = () => { el.textContent = new Date().toLocaleTimeString("en-IN", { hour12: false }); };
+      tick(); setInterval(tick, 1000);
+    }
+  })();
+
+  // Mobile sidebar toggle
+  document.getElementById("sidebar-toggle")?.addEventListener("click", () => {
+    document.getElementById("sidebar").classList.toggle("open");
+  });
+
+  // Auto-dismiss messages after 5s
+  setTimeout(() => {
+    document.querySelectorAll(".django-messages .alert").forEach(el => {
+      bootstrap.Alert.getOrCreateInstance(el).close();
+    });
+  }, 5000);
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

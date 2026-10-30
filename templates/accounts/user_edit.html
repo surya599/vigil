@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ target_user.username }} – NetPulse{% endblock %}
+{% block page_title %}Edit User – {{ target_user.username }}{% endblock %}
+{% block nav_users %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i data-lucide="edit-3" style="width:14px;height:14px;"></i>
+        Edit User: {{ target_user.username }}
+      </div>
+      <div class="p-4">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">First Name</label>
+              {{ form.first_name }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Last Name</label>
+              {{ form.last_name }}
+            </div>
+            <div class="col-12">
+              <label class="form-label">Email</label>
+              {{ form.email }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">NOC Role</label>
+              <select name="role" class="form-select">
+                {% for val, label in role_choices %}
+                <option value="{{ val }}" {% if target_user.profile.role == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Department</label>
+              {{ form.department }}
+            </div>
+            <div class="col-6">
+              <label class="form-label">Phone</label>
+              {{ form.phone_number }}
+            </div>
+            <div class="col-12">
+              <div class="form-check mt-1">
+                {{ form.email_notifications }}
+                <label class="form-check-label" for="{{ form.email_notifications.id_for_label }}"
+                  style="font-size:.85rem;color:var(--noc-text);">Email notifications enabled</label>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex gap-2 mt-4">
+            <button type="submit" class="btn btn-noc-primary">
+              <i data-lucide="save" style="width:14px;height:14px;"></i> Save Changes
+            </button>
+            <a href="{% url 'accounts:user-list' %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
