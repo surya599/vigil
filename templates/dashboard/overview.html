@@ -1,127 +1,205 @@
 {% extends "base.html" %}
-{% block title %}Overview – NetPulse{% endblock %}
-{% block page_title %}NOC Overview{% endblock %}
+{% block title %}NOC Overview – NetPulse{% endblock %}
+{% block page_title %}Network Operations Center Overview{% endblock %}
 {% block nav_overview %}active{% endblock %}
 
 {% block content %}
-<!-- ── Stat Cards ─────────────────────────────────────── -->
+<!-- ── Top Stats Row (7 NOC Indicators) ──────────────────────── -->
 <div class="row g-3 mb-4">
-  <!-- Total Devices -->
-  <div class="col-6 col-md-4 col-lg-2">
+  <!-- 1. Total Registered Devices -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
         <i data-lucide="server" style="color:var(--noc-accent);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value">{{ total_devices }}</div>
+      <div class="stat-value" id="stat-total-devices">{{ total_devices }}</div>
       <div class="stat-label">Total Devices</div>
     </div>
   </div>
-  <!-- Online -->
-  <div class="col-6 col-md-4 col-lg-2">
+
+  <!-- 2. Online Devices -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
         <i data-lucide="wifi" style="color:var(--noc-online);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-online);">{{ online_devices }}</div>
-      <div class="stat-label">Online</div>
+      <div class="stat-value" id="stat-online-devices" style="color:var(--noc-online);">{{ online_devices }}</div>
+      <div class="stat-label">Online Devices</div>
     </div>
   </div>
-  <!-- Offline -->
-  <div class="col-6 col-md-4 col-lg-2">
+
+  <!-- 3. Offline Devices -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(248,81,73,.12);">
         <i data-lucide="wifi-off" style="color:var(--noc-offline);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-offline);">{{ offline_devices }}</div>
-      <div class="stat-label">Offline</div>
+      <div class="stat-value" id="stat-offline-devices" style="color:var(--noc-offline);">{{ offline_devices }}</div>
+      <div class="stat-label">Offline Devices</div>
     </div>
   </div>
-  <!-- Avg Latency -->
-  <div class="col-6 col-md-4 col-lg-2">
+
+  <!-- 4. Average Latency -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
         <i data-lucide="timer" style="color:var(--noc-warning);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="font-size:1.6rem;">{{ avg_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-value" id="stat-avg-latency" style="font-size:1.5rem;">
+        {{ avg_latency }} <small style="font-size:.85rem;color:var(--noc-muted);">ms</small>
+      </div>
       <div class="stat-label">Avg Latency</div>
     </div>
   </div>
-  <!-- Packet Loss -->
-  <div class="col-6 col-md-4 col-lg-2">
+
+  <!-- 5. Average Packet Loss -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(248,81,73,.08);">
         <i data-lucide="percent" style="color:var(--noc-offline);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="font-size:1.6rem;">{{ avg_packet_loss }}<small style="font-size:.9rem;color:var(--noc-muted);">%</small></div>
+      <div class="stat-value" id="stat-avg-loss" style="font-size:1.5rem;">
+        {{ avg_packet_loss }}<small style="font-size:.85rem;color:var(--noc-muted);">%</small>
+      </div>
       <div class="stat-label">Avg Packet Loss</div>
     </div>
   </div>
-  <!-- Global Uptime -->
-  <div class="col-6 col-md-4 col-lg-2">
+
+  <!-- 6. Network Uptime SLA -->
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
         <i data-lucide="shield-check" style="color:var(--noc-online);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="font-size:1.6rem;color:var(--noc-online);">{{ global_uptime }}<small style="font-size:.9rem;">%</small></div>
+      <div class="stat-value" id="stat-uptime" style="font-size:1.5rem;color:var(--noc-online);">
+        {{ global_uptime }}<small style="font-size:.85rem;">%</small>
+      </div>
       <div class="stat-label">Network Uptime</div>
+    </div>
+  </div>
+
+  <!-- 7. Total Bandwidth Consumption -->
+  <div class="col-12 col-md-4 col-lg">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="activity" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="stat-bandwidth" style="font-size:1.5rem;color:var(--noc-accent);">
+        {{ total_bandwidth_display }}
+      </div>
+      <div class="stat-label">Total Bandwidth</div>
     </div>
   </div>
 </div>
 
-<!-- ── Lower Grid ─────────────────────────────────────── -->
+<!-- ── Charts Row ────────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <!-- Bandwidth Consumption Over Time -->
+  <div class="col-lg-8">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="activity" style="width:14px;height:14px;"></i> Live Network Bandwidth (Mbps)</span>
+        <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;" id="chart-refresh-indicator">
+          Auto-refreshing 15s
+        </span>
+      </div>
+      <div class="p-3" style="position:relative; height:280px;">
+        <canvas id="bandwidthChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device Status Distribution Donut -->
+  <div class="col-lg-4">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="pie-chart" style="width:14px;height:14px;"></i> Device Availability</span>
+      </div>
+      <div class="p-3 d-flex flex-column align-items-center justify-content-center" style="position:relative; height:280px;">
+        <div style="width:200px; height:200px; position:relative;">
+          <canvas id="deviceStatusChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Latency Trend Chart ────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-12">
+    <div class="noc-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="trending-up" style="width:14px;height:14px;"></i> Network Latency &amp; Packet Loss Trend</span>
+        <div class="d-flex gap-2">
+          <span style="font-size:.75rem; color:var(--noc-online);">● Latency (ms)</span>
+          <span style="font-size:.75rem; color:var(--noc-offline);">● Loss (%)</span>
+        </div>
+      </div>
+      <div class="p-3" style="position:relative; height:220px;">
+        <canvas id="latencyTrendChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Bottom Grid: Device Status & Active Incidents ─────────── -->
 <div class="row g-4">
-  <!-- Recent Devices -->
+  <!-- Device Monitoring Mini-Table -->
   <div class="col-lg-7">
     <div class="noc-card">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i data-lucide="server" style="width:13px;height:13px;"></i> Recent Devices</span>
-        <a href="{% url 'devices:device-list' %}" style="font-size:.72rem;color:var(--noc-accent);">View All →</a>
+        <span><i data-lucide="server" style="width:14px;height:14px;"></i> Monitored Devices</span>
+        <a href="{% url 'devices:device-list' %}" style="font-size:.75rem;color:var(--noc-accent);text-decoration:none;">
+          Full Device Table →
+        </a>
       </div>
       <div class="table-responsive">
-        <table class="table table-dark table-hover mb-0" style="font-size:.8rem;">
+        <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
           <thead>
             <tr>
               <th>Device</th>
-              <th>IP</th>
+              <th>IP Address</th>
               <th>Type</th>
               <th>Status</th>
               <th>Latency</th>
               <th>Last Check</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="device-table-body">
             {% for device in recent_devices %}
             {% with m=device.latest_metric %}
             <tr>
               <td>
                 <a href="{% url 'devices:device-detail' device.pk %}"
-                   style="color:var(--noc-text);text-decoration:none;font-weight:500;">
+                   style="color:var(--noc-text);text-decoration:none;font-weight:600;">
                   {{ device.name }}
                 </a>
               </td>
-              <td><code style="font-size:.75rem;color:var(--noc-muted);">{{ device.ip_address }}</code></td>
-              <td style="color:var(--noc-muted);">{{ device.get_device_type_display }}</td>
+              <td><code style="font-size:.78rem;color:var(--noc-accent);">{{ device.ip_address }}</code></td>
+              <td style="color:var(--noc-muted);font-size:.78rem;">{{ device.get_device_type_display }}</td>
               <td>
                 <span class="badge rounded-pill px-2 badge-{{ device.status }}" style="font-size:.7rem;">
                   ● {{ device.get_status_display }}
                 </span>
               </td>
-              <td style="font-size:.78rem;">
-                {% if m and m.latency %}
+              <td style="font-size:.8rem;">
+                {% if m and m.latency is not None %}
                   <span class="{% if m.latency > 300 %}text-danger{% elif m.latency > 100 %}text-warning{% else %}text-success{% endif %}">
                     {{ m.latency|floatformat:1 }}ms
                   </span>
                 {% else %}—{% endif %}
               </td>
-              <td style="color:var(--noc-muted);font-size:.72rem;">
+              <td style="color:var(--noc-muted);font-size:.75rem;">
                 {% if device.last_checked %}{{ device.last_checked|timesince }} ago{% else %}Never{% endif %}
               </td>
             </tr>
             {% endwith %}
             {% empty %}
-            <tr><td colspan="6" class="text-center py-4" style="color:var(--noc-muted);">
-              No devices registered. <a href="{% url 'devices:device-create' %}">Add one now</a>.
-            </td></tr>
+            <tr>
+              <td colspan="6" class="text-center py-4" style="color:var(--noc-muted);">
+                No devices monitored yet. <a href="{% url 'devices:device-create' %}">Add a device</a>.
+              </td>
+            </tr>
             {% endfor %}
           </tbody>
         </table>
@@ -129,37 +207,51 @@
     </div>
   </div>
 
-  <!-- Active Alerts -->
+  <!-- Active Alerts & Quick Acknowledgement Panel -->
   <div class="col-lg-5">
     <div class="noc-card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span>
-          <i data-lucide="bell" style="width:13px;height:13px;"></i>
-          Active Alerts
-          {% if active_alerts_count > 0 %}
-          <span class="badge bg-danger ms-1" style="font-size:.65rem;">{{ active_alerts_count }}</span>
-          {% endif %}
+          <i data-lucide="bell" style="width:14px;height:14px;"></i> Active Alerts
+          <span class="badge bg-danger ms-1" id="badge-alert-count" style="font-size:.68rem;">
+            {{ active_alerts_count }}
+          </span>
         </span>
+        <a href="{% url 'alerts:alert-list' %}" style="font-size:.75rem;color:var(--noc-accent);text-decoration:none;">
+          View All Alerts →
+        </a>
       </div>
-      <div class="p-3">
+      <div class="p-3" id="alerts-container">
         {% for alert in recent_alerts %}
-        <div class="d-flex gap-2 p-2 rounded mb-2 alert-{{ alert.severity }}"
-             style="background:rgba(255,255,255,.03);">
+        <div class="d-flex gap-2 p-2 rounded mb-2 alert-{{ alert.severity }} align-items-start"
+             id="alert-box-{{ alert.id }}" style="background:rgba(255,255,255,.03);">
           <div class="mt-1" style="flex-shrink:0;">
             {% if alert.severity == 'critical' %}
-              <i data-lucide="alert-circle" style="width:13px;height:13px;color:var(--noc-offline);"></i>
+              <i data-lucide="alert-circle" style="width:14px;height:14px;color:var(--noc-offline);"></i>
             {% elif alert.severity == 'warning' %}
-              <i data-lucide="alert-triangle" style="width:13px;height:13px;color:var(--noc-warning);"></i>
+              <i data-lucide="alert-triangle" style="width:14px;height:14px;color:var(--noc-warning);"></i>
             {% else %}
-              <i data-lucide="info" style="width:13px;height:13px;color:var(--noc-accent);"></i>
+              <i data-lucide="info" style="width:14px;height:14px;color:var(--noc-accent);"></i>
             {% endif %}
           </div>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:.78rem;font-weight:600;">{{ alert.device.name }}</div>
-            <div style="font-size:.72rem;color:var(--noc-muted);">{{ alert.get_alert_type_display }}</div>
-          </div>
-          <div style="font-size:.68rem;color:var(--noc-muted);white-space:nowrap;flex-shrink:0;">
-            {{ alert.created_at|timesince }} ago
+            <div class="d-flex justify-content-between">
+              <span class="fw-semibold" style="font-size:.8rem;">{{ alert.device.name }}</span>
+              <span style="font-size:.68rem;color:var(--noc-muted);">{{ alert.created_at|timesince }} ago</span>
+            </div>
+            <div style="font-size:.74rem;color:var(--noc-muted);" class="text-truncate">
+              {{ alert.description }}
+            </div>
+            {% if not alert.is_acknowledged and request.user.profile.is_operator %}
+            <button class="btn btn-xs btn-outline-warning mt-1 btn-ack" data-id="{{ alert.id }}"
+                    style="font-size:.65rem;padding:.15rem .45rem;">
+              Acknowledge
+            </button>
+            {% elif alert.is_acknowledged %}
+            <span class="text-success mt-1 d-inline-block" style="font-size:.68rem;">
+              ✓ Ack by {{ alert.acknowledged_by.username }}
+            </span>
+            {% endif %}
           </div>
         </div>
         {% empty %}
@@ -176,18 +268,233 @@
 
 {% block extra_js %}
 <script>
-// Auto-refresh stats every 30 seconds via API
-(function liveStats() {
-  async function refresh() {
-    try {
-      const r = await fetch("{% url 'dashboard:stats' %}");
-      if (!r.ok) return;
-      const d = await r.json();
-      // Stats will be populated by WebSocket in Phase 8
-      // console.log("Stats refresh:", d);
-    } catch(e) {}
+// CSRF Helper for AJAX requests
+function getCSRFToken() {
+  const cookie = document.cookie.split("; ").find(row => row.startsWith("csrftoken="));
+  return cookie ? cookie.split("=")[1] : "";
+}
+
+// Chart.js Theme Defaults
+Chart.defaults.color = "#8b949e";
+Chart.defaults.borderColor = "#21262d";
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+// ── Bandwidth Chart ──────────────────────────────────────────
+const bwCtx = document.getElementById("bandwidthChart").getContext("2d");
+const bandwidthChart = new Chart(bwCtx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Incoming (Mbps)",
+        data: [],
+        borderColor: "#58a6ff",
+        backgroundColor: "rgba(88,166,255,0.12)",
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 2,
+      },
+      {
+        label: "Outgoing (Mbps)",
+        data: [],
+        borderColor: "#3fb950",
+        backgroundColor: "rgba(63,185,80,0.08)",
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        beginAtZero: true,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + " Mbps" }
+      },
+      x: { grid: { display: false } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 12 } },
+      tooltip: { mode: "index", intersect: false }
+    }
   }
-  setInterval(refresh, 30000);
-})();
+});
+
+// ── Device Status Donut Chart ────────────────────────────────
+const donutCtx = document.getElementById("deviceStatusChart").getContext("2d");
+const deviceStatusChart = new Chart(donutCtx, {
+  type: "doughnut",
+  data: {
+    labels: ["Online", "Warning", "Offline", "Unknown"],
+    datasets: [{
+      data: [{{ online_devices }}, {{ warning_devices }}, {{ offline_devices }}, {{ unknown_devices }}],
+      backgroundColor: ["#3fb950", "#d29922", "#f85149", "#8b949e"],
+      borderColor: "#161b22",
+      borderWidth: 3,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "70%",
+    plugins: {
+      legend: { position: "bottom", labels: { boxWidth: 10, padding: 12 } }
+    }
+  }
+});
+
+// ── Latency Trend Chart ──────────────────────────────────────
+const latCtx = document.getElementById("latencyTrendChart").getContext("2d");
+const latencyTrendChart = new Chart(latCtx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Latency (ms)",
+        data: [],
+        borderColor: "#d29922",
+        backgroundColor: "rgba(210,153,34,0.1)",
+        yAxisID: "yLat",
+        tension: 0.3,
+        borderWidth: 2,
+        pointRadius: 2,
+      },
+      {
+        label: "Packet Loss (%)",
+        data: [],
+        borderColor: "#f85149",
+        backgroundColor: "rgba(248,81,73,0.1)",
+        yAxisID: "yLoss",
+        tension: 0.3,
+        borderWidth: 2,
+        pointRadius: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      yLat: {
+        type: "linear",
+        position: "left",
+        beginAtZero: true,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + " ms" }
+      },
+      yLoss: {
+        type: "linear",
+        position: "right",
+        min: 0,
+        max: 100,
+        grid: { display: false },
+        ticks: { callback: v => v + "%" }
+      },
+      x: { grid: { display: false } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 12 } },
+      tooltip: { mode: "index", intersect: false }
+    }
+  }
+});
+
+// ── Async Data Refresh Loop ──────────────────────────────────
+async function updateDashboardData() {
+  try {
+    // 1. Fetch live summary statistics
+    const statsRes = await fetch("{% url 'api-dashboard-stats' %}");
+    if (statsRes.ok) {
+      const d = await statsRes.json();
+      document.getElementById("stat-total-devices").textContent = d.devices.total;
+      document.getElementById("stat-online-devices").textContent = d.devices.online;
+      document.getElementById("stat-offline-devices").textContent = d.devices.offline;
+      document.getElementById("stat-avg-latency").innerHTML = `${d.performance.avg_latency_ms} <small style="font-size:.85rem;color:var(--noc-muted);">ms</small>`;
+      document.getElementById("stat-avg-loss").innerHTML = `${d.performance.avg_packet_loss_pct}<small style="font-size:.85rem;color:var(--noc-muted);">%</small>`;
+      document.getElementById("stat-uptime").innerHTML = `${d.performance.global_uptime_pct}<small style="font-size:.85rem;">%</small>`;
+      document.getElementById("stat-bandwidth").textContent = d.performance.total_bandwidth_display;
+      document.getElementById("badge-alert-count").textContent = d.alerts.active_total;
+
+      // Update donut chart
+      deviceStatusChart.data.datasets[0].data = [
+        d.devices.online, d.devices.warning, d.devices.offline, d.devices.unknown
+      ];
+      deviceStatusChart.update();
+    }
+
+    // 2. Fetch bandwidth time series
+    const bwRes = await fetch("{% url 'analytics:bandwidth-chart' %}");
+    if (bwRes.ok) {
+      const bw = await bwRes.json();
+      if (bw.labels && bw.labels.length > 0) {
+        bandwidthChart.data.labels = bw.labels;
+        bandwidthChart.data.datasets[0].data = bw.incoming_mbps;
+        bandwidthChart.data.datasets[1].data = bw.outgoing_mbps;
+        bandwidthChart.update();
+      }
+    }
+
+    // 3. Fetch latency & packet loss trend
+    const latRes = await fetch("{% url 'analytics:latency-chart' %}");
+    if (latRes.ok) {
+      const lat = await latRes.json();
+      if (lat.labels && lat.labels.length > 0) {
+        latencyTrendChart.data.labels = lat.labels;
+        latencyTrendChart.data.datasets[0].data = lat.latency_ms;
+        latencyTrendChart.data.datasets[1].data = lat.packet_loss_pct;
+        latencyTrendChart.update();
+      }
+    }
+  } catch (err) {
+    console.warn("NOC telemetry update error:", err);
+  }
+}
+
+// Initial fetch and 15s poll
+updateDashboardData();
+setInterval(updateDashboardData, 15000);
+
+// ── Interactive Alert Acknowledgement via AJAX ───────────────
+document.addEventListener("click", async function(e) {
+  if (e.target.matches(".btn-ack")) {
+    const btn = e.target;
+    const alertId = btn.getAttribute("data-id");
+    btn.disabled = true;
+    btn.textContent = "Acknowledging...";
+
+    try {
+      const res = await fetch(`/api/alerts/${alertId}/acknowledge/`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": getCSRFToken(),
+          "Content-Type": "application/json",
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parent = btn.parentElement;
+        btn.remove();
+        const ackSpan = document.createElement("span");
+        ackSpan.className = "text-success mt-1 d-inline-block";
+        ackSpan.style.fontSize = ".68rem";
+        ackSpan.textContent = `✓ Ack by ${data.acknowledged_by || "Operator"}`;
+        parent.appendChild(ackSpan);
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Acknowledge";
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "Acknowledge";
+    }
+  }
+});
 </script>
 {% endblock %}

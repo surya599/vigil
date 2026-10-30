@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Network Topology – NetPulse{% endblock %}
+{% block page_title %}Network Topology Map{% endblock %}
+{% block nav_topology %}active{% endblock %}
+
+{% block content %}
+<!-- Summary Header -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="server" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ total_nodes }}</div>
+      <div class="stat-label">Topology Nodes</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="share-2" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-online);">{{ total_edges }}</div>
+      <div class="stat-label">Total Network Links</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="edit" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ manual_links }}</div>
+      <div class="stat-label">Manual Links</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="radio" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-warning);">{{ discovered_links }}</div>
+      <div class="stat-label">Discovered Links</div>
+    </div>
+  </div>
+</div>
+
+<!-- Topology Canvas Panel -->
+<div class="noc-card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i data-lucide="git-fork" style="width:14px;height:14px;"></i> Interactive Topology Visualizer</span>
+    <div class="d-flex align-items-center gap-3">
+      <span class="d-flex align-items-center gap-1" style="font-size:.72rem;">
+        <span style="display:inline-block;width:12px;height:2px;background:#58a6ff;"></span> Manual
+      </span>
+      <span class="d-flex align-items-center gap-1" style="font-size:.72rem;">
+        <span style="display:inline-block;width:12px;height:2px;border-top:2px dashed #d29922;"></span> Discovered
+      </span>
+      <button class="btn btn-xs btn-outline-secondary" onclick="resetTopologyZoom()" style="font-size:.7rem;padding:.2rem .5rem;">
+        Reset View
+      </button>
+    </div>
+  </div>
+  <div class="p-0 position-relative" style="background:#090d13; height:480px; overflow:hidden; border-radius:0 0 10px 10px;">
+    <svg id="topology-svg" width="100%" height="100%" style="cursor:grab;"></svg>
+
+    <!-- Node Inspector Card (shows when a node is clicked) -->
+    <div id="node-inspector" class="noc-card position-absolute shadow-lg p-3"
+         style="display:none; bottom:16px; right:16px; width:280px; z-index:10; background:rgba(22,27,34,0.95); backdrop-filter:blur(6px);">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0" id="insp-name" style="font-size:.88rem;">Device Name</h6>
+        <button type="button" class="btn-close btn-close-white btn-sm" onclick="closeInspector()"></button>
+      </div>
+      <div style="font-size:.78rem;color:var(--noc-muted);">
+        <div class="d-flex justify-content-between mb-1">
+          <span>IP Address:</span>
+          <code id="insp-ip" style="color:var(--noc-accent);">192.168.1.1</code>
+        </div>
+        <div class="d-flex justify-content-between mb-1">
+          <span>Device Type:</span>
+          <span id="insp-type" style="color:var(--noc-text);">Router</span>
+        </div>
+        <div class="d-flex justify-content-between mb-1">
+          <span>Status:</span>
+          <span id="insp-status" class="badge">Online</span>
+        </div>
+        <div class="d-flex justify-content-between">
+          <span>Location:</span>
+          <span id="insp-loc" style="color:var(--noc-text);">Server Room</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Links Table -->
+<div class="noc-card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i data-lucide="link" style="width:14px;height:14px;"></i> Topology Connections</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
+      <thead>
+        <tr>
+          <th>Source Device</th>
+          <th>Destination Device</th>
+          <th>Connection Medium</th>
+          <th>Link Speed</th>
+          <th>Status</th>
+          <th>Discovery Mode</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in connections %}
+        <tr>
+          <td>
+            <a href="{% url 'devices:device-detail' c.source_device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
+              {{ c.source_device.name }}
+            </a>
+            <div style="font-size:.72rem;color:var(--noc-muted);">{{ c.source_device.ip_address }}</div>
+          </td>
+          <td>
+            <a href="{% url 'devices:device-detail' c.destination_device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
+              {{ c.destination_device.name }}
+            </a>
+            <div style="font-size:.72rem;color:var(--noc-muted);">{{ c.destination_device.ip_address }}</div>
+          </td>
+          <td style="color:var(--noc-muted);">{{ c.get_connection_type_display }}</td>
+          <td><code>{{ c.link_speed|default:"1 Gbps" }}</code></td>
+          <td>
+            <span class="badge rounded-pill px-2 badge-{{ c.status }}" style="font-size:.7rem;">
+              ● {{ c.status|title }}
+            </span>
+          </td>
+          <td>
+            {% if c.is_discovered %}
+              <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size:.7rem;">
+                Auto-Discovered
+              </span>
+            {% else %}
+              <span class="badge bg-info-subtle text-info border border-info-subtle" style="font-size:.7rem;">
+                Manual (Admin)
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="text-center py-4" style="color:var(--noc-muted);">
+            No network connections defined. Connections can be linked between registered devices in Phase 11.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const topologyData = {{ topology_data_json|safe }};
+
+(function initTopologyGraph() {
+  const svg = document.getElementById("topology-svg");
+  if (!svg || !topologyData.nodes || topologyData.nodes.length === 0) return;
+
+  const width = svg.clientWidth || 900;
+  const height = svg.clientHeight || 480;
+
+  // Compute circular / tree positions for nodes
+  const nodes = topologyData.nodes;
+  const edges = topologyData.edges;
+  const nodeMap = {};
+
+  const total = nodes.length;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) * 0.35;
+
+  nodes.forEach((n, idx) => {
+    const angle = (2 * Math.PI * idx) / (total || 1) - Math.PI / 2;
+    n.x = total === 1 ? cx : cx + radius * Math.cos(angle);
+    n.y = total === 1 ? cy : cy + radius * Math.sin(angle);
+    nodeMap[n.id] = n;
+  });
+
+  // SVG group for pan/zoom
+  let svgContent = `<g id="viewport">`;
+
+  // Draw Edges
+  edges.forEach(e => {
+    const src = nodeMap[e.from];
+    const dst = nodeMap[e.to];
+    if (src && dst) {
+      const strokeColor = e.is_discovered ? "#d29922" : "#58a6ff";
+      const strokeDash = e.is_discovered ? "stroke-dasharray='5,5'" : "";
+      svgContent += `
+        <line x1="${src.x}" y1="${src.y}" x2="${dst.x}" y2="${dst.y}"
+              stroke="${strokeColor}" stroke-width="2" opacity="0.6" ${strokeDash} />
+      `;
+    }
+  });
+
+  // Draw Nodes
+  nodes.forEach(n => {
+    let color = "#8b949e";
+    if (n.status === "online") color = "#3fb950";
+    else if (n.status === "offline") color = "#f85149";
+    else if (n.status === "warning") color = "#d29922";
+
+    svgContent += `
+      <g class="top-node" data-id="${n.id}" style="cursor:pointer;" onclick="selectNode(${n.id})">
+        <circle cx="${n.x}" cy="${n.y}" r="22" fill="#161b22" stroke="${color}" stroke-width="3" />
+        <circle cx="${n.x}" cy="${n.y}" r="6" fill="${color}" />
+        <text x="${n.x}" y="${n.y + 36}" fill="#e6edf3" font-size="12" font-weight="600" text-anchor="middle">
+          ${n.label}
+        </text>
+        <text x="${n.x}" y="${n.y + 50}" fill="#8b949e" font-size="10" text-anchor="middle">
+          ${n.ip}
+        </text>
+      </g>
+    `;
+  });
+
+  svgContent += `</g>`;
+  svg.innerHTML = svgContent;
+})();
+
+function selectNode(id) {
+  const node = topologyData.nodes.find(n => n.id === id);
+  if (!node) return;
+
+  document.getElementById("insp-name").textContent = node.label;
+  document.getElementById("insp-ip").textContent = node.ip;
+  document.getElementById("insp-type").textContent = node.type_display;
+  document.getElementById("insp-loc").textContent = node.location;
+  
+  const statusBadge = document.getElementById("insp-status");
+  statusBadge.textContent = node.status.toUpperCase();
+  statusBadge.className = `badge badge-${node.status}`;
+
+  document.getElementById("node-inspector").style.display = "block";
+}
+
+function closeInspector() {
+  document.getElementById("node-inspector").style.display = "none";
+}
+
+function resetTopologyZoom() {
+  closeInspector();
+}
+</script>
+{% endblock %}

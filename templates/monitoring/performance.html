@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Performance Monitoring – NetPulse{% endblock %}
+{% block page_title %}Performance Monitoring &amp; Latency Analytics{% endblock %}
+{% block nav_performance %}active{% endblock %}
+
+{% block content %}
+<!-- Device Selection & Filter Bar -->
+<div class="noc-card mb-4">
+  <div class="p-3">
+    <form method="get" class="row g-2 align-items-center">
+      <div class="col-md-6 col-lg-4">
+        <label class="form-label mb-1">Select Monitored Device</label>
+        <select name="device" class="form-select form-select-sm" onchange="this.form.submit()">
+          {% for d in devices %}
+          <option value="{{ d.id }}" {% if selected_device and selected_device.id == d.id %}selected{% endif %}>
+            {{ d.name }} ({{ d.ip_address }}) — {{ d.get_status_display }}
+          </option>
+          {% empty %}
+          <option value="">No devices registered</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 col-lg-8 text-md-end mt-3 mt-md-0">
+        {% if selected_device %}
+        <span class="badge rounded-pill px-3 py-1 badge-{{ selected_device.status }}">
+          ● Status: {{ selected_device.get_status_display }}
+        </span>
+        <span class="badge rounded-pill px-3 py-1 bg-dark border border-secondary ms-1">
+          Poll Interval: {{ selected_device.polling_interval }}s
+        </span>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if selected_device %}
+<!-- Performance Indicator Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="timer" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ avg_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-label">Average Latency</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="arrow-down" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-online);">{{ min_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-label">Minimum Latency</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.12);">
+        <i data-lucide="arrow-up" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-offline);">{{ max_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-label">Peak Latency</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.08);">
+        <i data-lucide="percent" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ avg_loss }}<small style="font-size:.9rem;color:var(--noc-muted);">%</small></div>
+      <div class="stat-label">Avg Packet Loss</div>
+    </div>
+  </div>
+</div>
+
+<!-- Performance Chart -->
+<div class="noc-card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i data-lucide="activity" style="width:14px;height:14px;"></i> {{ selected_device.name }} Latency &amp; Loss Trends</span>
+    <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live ICMP Telemetry</span>
+  </div>
+  <div class="p-3" style="position:relative; height:320px;">
+    <canvas id="performanceChart"></canvas>
+  </div>
+</div>
+{% else %}
+<div class="noc-card p-5 text-center text-muted">
+  <i data-lucide="server-off" style="width:40px;height:40px;margin-bottom:1rem;display:block;margin-inline:auto;"></i>
+  <h5>No devices registered for performance monitoring.</h5>
+  <p><a href="{% url 'devices:device-create' %}">Add a device</a> to begin monitoring network performance.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if selected_device %}
+<script>
+const perfCtx = document.getElementById("performanceChart").getContext("2d");
+const perfChart = new Chart(perfCtx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Latency (ms)",
+        data: [],
+        borderColor: "#d29922",
+        backgroundColor: "rgba(210,153,34,0.12)",
+        yAxisID: "yLat",
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 3,
+      },
+      {
+        label: "Packet Loss (%)",
+        data: [],
+        borderColor: "#f85149",
+        backgroundColor: "rgba(248,81,73,0.1)",
+        yAxisID: "yLoss",
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 3,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      yLat: {
+        type: "linear",
+        position: "left",
+        beginAtZero: true,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + " ms" }
+      },
+      yLoss: {
+        type: "linear",
+        position: "right",
+        min: 0,
+        max: 100,
+        grid: { display: false },
+        ticks: { callback: v => v + "%" }
+      },
+      x: { grid: { color: "#21262d" } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 12 } }
+    }
+  }
+});
+
+async function refreshPerfData() {
+  try {
+    const res = await fetch("{% url 'analytics:latency-chart' %}?device_id={{ selected_device.id }}&limit=40");
+    if (res.ok) {
+      const d = await res.json();
+      if (d.labels && d.labels.length > 0) {
+        perfChart.data.labels = d.labels;
+        perfChart.data.datasets[0].data = d.latency_ms;
+        perfChart.data.datasets[1].data = d.packet_loss_pct;
+        perfChart.update();
+      }
+    }
+  } catch (err) {
+    console.warn("Performance data poll error:", err);
+  }
+}
+
+refreshPerfData();
+setInterval(refreshPerfData, 15000);
+</script>
+{% endif %}
+{% endblock %}

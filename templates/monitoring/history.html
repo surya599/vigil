@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Monitoring History – NetPulse{% endblock %}
+{% block page_title %}Network Monitoring History{% endblock %}
+{% block nav_history %}active{% endblock %}
+
+{% block content %}
+<!-- Filter Bar -->
+<div class="noc-card mb-4">
+  <div class="p-3">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label mb-1">Filter by Device</label>
+        <select name="device" class="form-select form-select-sm">
+          <option value="">All Devices</option>
+          {% for d in devices %}
+          <option value="{{ d.id }}" {% if selected_device == d.id|stringformat:"i" %}selected{% endif %}>
+            {{ d.name }} ({{ d.ip_address }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label mb-1">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">All Statuses</option>
+          {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if selected_status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill">Apply Filter</button>
+        <a href="{% url 'monitoring:history' %}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- History Log Table -->
+<div class="noc-table mb-4">
+  <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
+    <thead>
+      <tr>
+        <th>Device</th>
+        <th>IP Address</th>
+        <th>Status</th>
+        <th>Latency</th>
+        <th>Packet Loss</th>
+        <th>Jitter</th>
+        <th>Recorded At</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in metrics %}
+      <tr>
+        <td>
+          <a href="{% url 'devices:device-detail' m.device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
+            {{ m.device.name }}
+          </a>
+        </td>
+        <td><code style="color:var(--noc-accent);">{{ m.device.ip_address }}</code></td>
+        <td>
+          <span class="badge rounded-pill px-2 badge-{{ m.status }}" style="font-size:.7rem;">
+            ● {{ m.status|title }}
+          </span>
+        </td>
+        <td>
+          {% if m.latency is not None %}
+            <span class="{% if m.latency > 300 %}text-danger{% elif m.latency > 100 %}text-warning{% else %}text-success{% endif %}">
+              {{ m.latency|floatformat:1 }} ms
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          <span class="{% if m.packet_loss > 25 %}text-danger{% elif m.packet_loss > 5 %}text-warning{% else %}text-success{% endif %}">
+            {{ m.packet_loss|floatformat:1 }}%
+          </span>
+        </td>
+        <td style="color:var(--noc-muted);">
+          {% if m.jitter is not None %}{{ m.jitter|floatformat:1 }} ms{% else %}—{% endif %}
+        </td>
+        <td style="color:var(--noc-muted);font-size:.75rem;">
+          {{ m.recorded_at|date:"Y-m-d H:i:s" }}
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7" class="text-center py-5" style="color:var(--noc-muted);">
+          <i data-lucide="clock" style="width:32px;height:32px;margin-bottom:.5rem;display:block;margin-inline:auto;"></i>
+          No monitoring history recorded matching the criteria.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if is_paginated %}
+<nav>
+  <ul class="pagination pagination-sm justify-content-end">
+    {% if page_obj.has_previous %}
+    <li class="page-item">
+      <a class="page-link" href="?{% if selected_device %}device={{ selected_device }}&{% endif %}{% if selected_status %}status={{ selected_status }}&{% endif %}page={{ page_obj.previous_page_number }}">‹ Prev</a>
+    </li>
+    {% endif %}
+    <li class="page-item disabled">
+      <span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    </li>
+    {% if page_obj.has_next %}
+    <li class="page-item">
+      <a class="page-link" href="?{% if selected_device %}device={{ selected_device }}&{% endif %}{% if selected_status %}status={{ selected_status }}&{% endif %}page={{ page_obj.next_page_number }}">Next ›</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

@@ -107,8 +107,8 @@ NetPulse/
 | **Phase 1** | **Project setup, virtual environment, dependencies & PostgreSQL connection** | **COMPLETED** |
 | **Phase 2** | **Django applications, database models, relationships & migrations** | **COMPLETED** |
 | **Phase 3** | **Authentication, operator/admin roles & device CRUD management** | **COMPLETED** |
-| Phase 4 | Professional dark NOC dashboard frontend & Django integration | *Upcoming / Next* |
-| Phase 5 | ICMP monitoring engine (ping, latency, packet loss calculation) | *Upcoming* |
+| **Phase 4** | **Professional dark NOC dashboard frontend & Django integration** | **COMPLETED** |
+| Phase 5 | ICMP monitoring engine (ping, latency, packet loss calculation) | *Upcoming / Next* |
 | Phase 6 | SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth) | *Upcoming* |
 | Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming* |
 | Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming* |
@@ -116,6 +116,47 @@ NetPulse/
 | Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming* |
 | Phase 11 | Interactive network topology graph visualization | *Upcoming* |
 | Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming* |
+
+---
+
+## Verification & Execution Guide
+
+### Automated Testing
+Execute the complete test suite (89 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, and Navigation):
+```powershell
+.\.venv\Scripts\pytest.exe -v
+```
+
+### Manual Verification for Phase 4 (NOC Dashboard & Views)
+
+1. **Start the Development Server:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py runserver
+   ```
+
+2. **Login to NetPulse:**
+   - Navigate to `http://127.0.0.1:8000/login/`
+   - Log in using your credentials (e.g., username `surya` or administrator account).
+
+3. **Verify Dashboard Overview (`/dashboard/`):**
+   - 7 live NOC metric cards rendered dynamically from database models:
+     - Total Devices, Online, Offline, Avg Latency (ms), Avg Packet Loss (%), Global Uptime (%), and Total Bandwidth Consumption.
+   - Dual-line Chart.js bandwidth telemetry (Incoming vs Outgoing Mbps over time).
+   - Latency Trend chart (Latency ms vs Packet Loss %).
+   - Device Availability Donut chart (Online vs Warning vs Offline).
+   - High Priority Unacknowledged Alerts list with inline one-click AJAX acknowledgement.
+
+4. **Verify Sidebar Navigation Links (All 10 Routes):**
+   - **Overview:** `/dashboard/`
+   - **Network Devices:** `/devices/`
+   - **Network Topology:** `/topology/` (Interactive SVG topology canvas with node status, manual vs discovered link styling)
+   - **Traffic Analytics:** `/analytics/` (Dynamic bandwidth telemetry and interface breakdowns)
+   - **Performance Monitoring:** `/monitoring/performance/` (Device telemetry selector, latency/loss charts, min/avg/max latency cards)
+   - **Alerts & Notifications:** `/alerts/` (Active, Unacknowledged, Resolved tabs with acknowledgement/resolution actions)
+   - **Monitoring History:** `/monitoring/history/` (Paginated historical metrics log with device and status filters)
+   - **Settings:** `/settings/` -> `/alerts/settings/` (Configure latency warning/critical thresholds and packet loss limits)
+   - **User Profile:** `/profile/` (Manage name, email, department, contact phone, and view role)
+   - **Logout:** `/logout/` (Terminates session and redirects to login)
 
 ---
 

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Settings – NetPulse{% endblock %}
+{% block page_title %}Monitoring &amp; Alert Threshold Settings{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="noc-card">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i data-lucide="sliders" style="width:15px;height:15px;"></i>
+        Configure Global Incident Trigger Thresholds
+      </div>
+      <div class="p-4">
+        <form method="post">
+          {% csrf_token %}
+
+          <h6 class="mb-3" style="color:var(--noc-muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">
+            Latency Alarm Thresholds (ICMP Round-Trip Time)
+          </h6>
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label">Warning Latency Threshold (ms)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.1" name="high_latency_warning_ms" class="form-control"
+                       value="{{ threshold.high_latency_warning_ms }}" required>
+                <span class="input-group-text bg-dark border-secondary text-muted">ms</span>
+              </div>
+              <small class="text-muted" style="font-size:.72rem;">Triggers an Amber Warning alert when round-trip time exceeds this value.</small>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Critical Latency Threshold (ms)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.1" name="high_latency_critical_ms" class="form-control"
+                       value="{{ threshold.high_latency_critical_ms }}" required>
+                <span class="input-group-text bg-dark border-secondary text-muted">ms</span>
+              </div>
+              <small class="text-muted" style="font-size:.72rem;">Triggers a Red Critical alert when round-trip time exceeds this value.</small>
+            </div>
+          </div>
+
+          <hr style="border-color:var(--noc-border);" />
+
+          <h6 class="mb-3" style="color:var(--noc-muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">
+            Packet Loss Thresholds
+          </h6>
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label">Packet Loss Warning (%)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.1" name="packet_loss_warning_pct" class="form-control"
+                       value="{{ threshold.packet_loss_warning_pct }}" min="0" max="100" required>
+                <span class="input-group-text bg-dark border-secondary text-muted">%</span>
+              </div>
+              <small class="text-muted" style="font-size:.72rem;">Warning alert triggered on packet drop rate.</small>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Packet Loss Critical (%)</label>
+              <div class="input-group input-group-sm">
+                <input type="number" step="0.1" name="packet_loss_critical_pct" class="form-control"
+                       value="{{ threshold.packet_loss_critical_pct }}" min="0" max="100" required>
+                <span class="input-group-text bg-dark border-secondary text-muted">%</span>
+              </div>
+              <small class="text-muted" style="font-size:.72rem;">Critical alert triggered on severe loss rate.</small>
+            </div>
+          </div>
+
+          <hr style="border-color:var(--noc-border);" />
+
+          <h6 class="mb-3" style="color:var(--noc-muted);font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;">
+            Availability &amp; Outage Detection
+          </h6>
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label">Consecutive Failures for Offline</label>
+              <input type="number" name="consecutive_failures_for_offline" class="form-control form-control-sm"
+                     value="{{ threshold.consecutive_failures_for_offline }}" min="1" max="10" required>
+              <small class="text-muted" style="font-size:.72rem;">Number of continuous missed ICMP checks before declaring device Offline.</small>
+            </div>
+          </div>
+
+          <div class="d-flex gap-2 pt-3" style="border-top:1px solid var(--noc-border);">
+            <button type="submit" class="btn btn-noc-primary">
+              <i data-lucide="save" style="width:14px;height:14px;"></i> Save Threshold Settings
+            </button>
+            <a href="{% url 'dashboard:overview' %}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

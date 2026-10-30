@@ -216,28 +216,28 @@
     <a href="{% url 'devices:device-list' %}" class="sidebar-link {% block nav_devices %}{% endblock %}">
       <i data-lucide="server"></i> Network Devices
     </a>
-    <a href="#" class="sidebar-link {% block nav_topology %}{% endblock %}">
-      <i data-lucide="git-fork"></i> Topology
+    <a href="{% url 'topology:topology-view' %}" class="sidebar-link {% block nav_topology %}{% endblock %}">
+      <i data-lucide="git-fork"></i> Network Topology
     </a>
 
     <div class="sidebar-section">Analytics</div>
-    <a href="#" class="sidebar-link {% block nav_traffic %}{% endblock %}">
+    <a href="{% url 'analytics:traffic-analytics' %}" class="sidebar-link {% block nav_traffic %}{% endblock %}">
       <i data-lucide="activity"></i> Traffic Analytics
     </a>
-    <a href="#" class="sidebar-link {% block nav_performance %}{% endblock %}">
-      <i data-lucide="trending-up"></i> Performance
+    <a href="{% url 'monitoring:performance' %}" class="sidebar-link {% block nav_performance %}{% endblock %}">
+      <i data-lucide="trending-up"></i> Performance Monitoring
     </a>
 
     <div class="sidebar-section">Incidents</div>
-    <a href="#" class="sidebar-link {% block nav_alerts %}{% endblock %}">
+    <a href="{% url 'alerts:alert-list' %}" class="sidebar-link {% block nav_alerts %}{% endblock %}">
       <i data-lucide="bell"></i> Alerts &amp; Notifications
     </a>
-    <a href="#" class="sidebar-link {% block nav_history %}{% endblock %}">
-      <i data-lucide="clock"></i> History
+    <a href="{% url 'monitoring:history' %}" class="sidebar-link {% block nav_history %}{% endblock %}">
+      <i data-lucide="clock"></i> Monitoring History
     </a>
 
     <div class="sidebar-section">Administration</div>
-    <a href="#" class="sidebar-link {% block nav_settings %}{% endblock %}">
+    <a href="{% url 'alerts:settings' %}" class="sidebar-link {% block nav_settings %}{% endblock %}">
       <i data-lucide="settings"></i> Settings
     </a>
     {% if request.user.profile.is_admin %}

@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}Alerts &amp; Incidents – NetPulse{% endblock %}
+{% block page_title %}Alert &amp; Incident Management{% endblock %}
+{% block nav_alerts %}active{% endblock %}
+
+{% block content %}
+<!-- Top Alert Summary -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.15);">
+        <i data-lucide="alert-circle" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-offline);">{{ critical_count }}</div>
+      <div class="stat-label">Critical Alarms</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.15);">
+        <i data-lucide="alert-triangle" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-warning);">{{ warning_count }}</div>
+      <div class="stat-label">Warnings</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="bell" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ unack_count }}</div>
+      <div class="stat-label">Unacknowledged</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="check-circle" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-online);">{{ resolved_count }}</div>
+      <div class="stat-label">Resolved Incidents</div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs & Filter Bar -->
+<div class="noc-card mb-4">
+  <div class="card-header border-bottom-0 pb-0">
+    <ul class="nav nav-tabs border-bottom-0" style="gap:.5rem;">
+      <li class="nav-item">
+        <a class="nav-link {% if current_tab == 'active' %}active bg-transparent border-bottom-0 text-white fw-bold{% else %}text-muted{% endif %}"
+           href="?tab=active">
+          Active Alarms <span class="badge bg-danger ms-1" style="font-size:.65rem;">{{ active_count }}</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if current_tab == 'unacknowledged' %}active bg-transparent border-bottom-0 text-white fw-bold{% else %}text-muted{% endif %}"
+           href="?tab=unacknowledged">
+          Unacknowledged ({{ unack_count }})
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if current_tab == 'resolved' %}active bg-transparent border-bottom-0 text-white fw-bold{% else %}text-muted{% endif %}"
+           href="?tab=resolved">
+          Resolved History ({{ resolved_count }})
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <div class="p-3 border-top" style="border-color:var(--noc-border) !important;">
+    <form method="get" class="row g-2 align-items-end">
+      <input type="hidden" name="tab" value="{{ current_tab }}">
+
+      <div class="col-md-4">
+        <label class="form-label mb-1">Severity</label>
+        <select name="severity" class="form-select form-select-sm">
+          <option value="">All Severities</option>
+          {% for val, label in severity_choices %}
+          <option value="{{ val }}" {% if current_severity == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-5">
+        <label class="form-label mb-1">Alert Type</label>
+        <select name="alert_type" class="form-select form-select-sm">
+          <option value="">All Alert Types</option>
+          {% for val, label in type_choices %}
+          <option value="{{ val }}" {% if current_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill">Filter</button>
+        <a href="?tab={{ current_tab }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Alerts Table -->
+<div class="noc-table mb-4">
+  <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
+    <thead>
+      <tr>
+        <th>Severity</th>
+        <th>Device</th>
+        <th>Alert Type</th>
+        <th>Description</th>
+        <th>Status</th>
+        <th>Triggered</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for alert in alerts %}
+      <tr class="alert-{{ alert.severity }}">
+        <td>
+          <span class="badge rounded-pill px-2"
+                style="{% if alert.severity == 'critical' %}background:rgba(248,81,73,.2);color:#f85149;border:1px solid #f85149;{% elif alert.severity == 'warning' %}background:rgba(210,153,34,.2);color:#d29922;border:1px solid #d29922;{% else %}background:rgba(88,166,255,.2);color:#58a6ff;border:1px solid #58a6ff;{% endif %}font-size:.7rem;">
+            {{ alert.get_severity_display|upper }}
+          </span>
+        </td>
+        <td>
+          <a href="{% url 'devices:device-detail' alert.device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
+            {{ alert.device.name }}
+          </a>
+          <div style="font-size:.72rem;color:var(--noc-muted);">{{ alert.device.ip_address }}</div>
+        </td>
+        <td style="font-weight:500;">{{ alert.get_alert_type_display }}</td>
+        <td style="color:var(--noc-muted);max-width:320px;" class="text-truncate">
+          {{ alert.description }}
+        </td>
+        <td>
+          {% if alert.is_resolved %}
+            <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.7rem;">Resolved</span>
+          {% elif alert.is_acknowledged %}
+            <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size:.7rem;">
+              Ack by {{ alert.acknowledged_by.username }}
+            </span>
+          {% else %}
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size:.7rem;">Active</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--noc-muted);font-size:.75rem;white-space:nowrap;">
+          {{ alert.created_at|timesince }} ago
+        </td>
+        <td>
+          <div class="d-flex gap-1">
+            {% if not alert.is_acknowledged and not alert.is_resolved and request.user.profile.is_operator %}
+            <form method="post" style="display:inline;">
+              {% csrf_token %}
+              <input type="hidden" name="alert_id" value="{{ alert.id }}">
+              <input type="hidden" name="action" value="acknowledge">
+              <button type="submit" class="btn btn-xs btn-outline-warning" style="font-size:.7rem;padding:.2rem .45rem;">
+                Acknowledge
+              </button>
+            </form>
+            {% endif %}
+
+            {% if not alert.is_resolved and request.user.profile.is_operator %}
+            <form method="post" style="display:inline;">
+              {% csrf_token %}
+              <input type="hidden" name="alert_id" value="{{ alert.id }}">
+              <input type="hidden" name="action" value="resolve">
+              <button type="submit" class="btn btn-xs btn-outline-success" style="font-size:.7rem;padding:.2rem .45rem;">
+                Resolve
+              </button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="7" class="text-center py-5" style="color:var(--noc-muted);">
+          <i data-lucide="shield-check" style="width:32px;height:32px;color:var(--noc-online);display:block;margin:0 auto .5rem;"></i>
+          No incidents reported for this tab.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+{% if is_paginated %}
+<nav>
+  <ul class="pagination pagination-sm justify-content-end">
+    {% if page_obj.has_previous %}
+    <li class="page-item">
+      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}page={{ page_obj.previous_page_number }}">‹ Prev</a>
+    </li>
+    {% endif %}
+    <li class="page-item disabled">
+      <span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    </li>
+    {% if page_obj.has_next %}
+    <li class="page-item">
+      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}page={{ page_obj.next_page_number }}">Next ›</a>
+    </li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}

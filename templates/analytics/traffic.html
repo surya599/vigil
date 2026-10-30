@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Traffic Analytics – NetPulse{% endblock %}
+{% block page_title %}Network Traffic Analytics{% endblock %}
+{% block nav_traffic %}active{% endblock %}
+
+{% block content %}
+<!-- Top Traffic Summary Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="arrow-down-left" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="current-in-mbps">{{ current_incoming_mbps }} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small></div>
+      <div class="stat-label">Incoming Throughput</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="arrow-up-right" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="current-out-mbps">{{ current_outgoing_mbps }} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small></div>
+      <div class="stat-label">Outgoing Throughput</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="activity" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="current-total-mbps">{{ current_total_mbps }} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small></div>
+      <div class="stat-label">Total Bandwidth</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="git-commit" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ active_interfaces }} <small style="font-size:.9rem;color:var(--noc-muted);">/ {{ total_interfaces }}</small></div>
+      <div class="stat-label">Active Interfaces</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Bandwidth Graph -->
+<div class="noc-card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i data-lucide="line-chart" style="width:14px;height:14px;"></i> Bandwidth Utilization Over Time (Chart.js)</span>
+    <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live Real-Time Telemetry</span>
+  </div>
+  <div class="p-3" style="position:relative; height:340px;">
+    <canvas id="trafficAnalyticsChart"></canvas>
+  </div>
+</div>
+
+<!-- Network Interface Traffic Breakdown -->
+<div class="noc-card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i data-lucide="layers" style="width:14px;height:14px;"></i> Network Interface Telemetry</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
+      <thead>
+        <tr>
+          <th>Device</th>
+          <th>Interface</th>
+          <th>Index</th>
+          <th>Configured Speed</th>
+          <th>Operational Status</th>
+          <th>Current In (Mbps)</th>
+          <th>Current Out (Mbps)</th>
+          <th>Last Polled</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for iface in interfaces %}
+        {% with m=iface.latest_metric %}
+        <tr>
+          <td>
+            <a href="{% url 'devices:device-detail' iface.device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
+              {{ iface.device.name }}
+            </a>
+          </td>
+          <td><code style="color:var(--noc-accent);">{{ iface.interface_name }}</code></td>
+          <td style="color:var(--noc-muted);">{{ iface.interface_index }}</td>
+          <td style="color:var(--noc-muted);">
+            {% if iface.speed_bps %}{{ iface.speed_bps|filesizeformat|slice:"-1" }}bps{% else %}Auto{% endif %}
+          </td>
+          <td>
+            <span class="badge rounded-pill px-2 badge-{{ iface.operational_status }}" style="font-size:.7rem;">
+              ● {{ iface.operational_status|title }}
+            </span>
+          </td>
+          <td style="color:var(--noc-accent);">
+            {% if m %}{{ m.incoming_bps|floatformat:1 }} bps{% else %}—{% endif %}
+          </td>
+          <td style="color:var(--noc-online);">
+            {% if m %}{{ m.outgoing_bps|floatformat:1 }} bps{% else %}—{% endif %}
+          </td>
+          <td style="color:var(--noc-muted);font-size:.75rem;">
+            {{ iface.last_updated|timesince }} ago
+          </td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr>
+          <td colspan="8" class="text-center py-4" style="color:var(--noc-muted);">
+            No interface metrics recorded yet. Telemetry will populate upon running SNMP polling.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const trafficCtx = document.getElementById("trafficAnalyticsChart").getContext("2d");
+const trafficChart = new Chart(trafficCtx, {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Incoming Traffic (Mbps)",
+        data: [],
+        borderColor: "#58a6ff",
+        backgroundColor: "rgba(88,166,255,0.15)",
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+      },
+      {
+        label: "Outgoing Traffic (Mbps)",
+        data: [],
+        borderColor: "#3fb950",
+        backgroundColor: "rgba(63,185,80,0.1)",
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        beginAtZero: true,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + " Mbps" }
+      },
+      x: { grid: { color: "#21262d" } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 12 } }
+    }
+  }
+});
+
+async function refreshTrafficData() {
+  try {
+    const res = await fetch("{% url 'analytics:bandwidth-chart' %}?limit=40");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.labels && data.labels.length > 0) {
+        trafficChart.data.labels = data.labels;
+        trafficChart.data.datasets[0].data = data.incoming_mbps;
+        trafficChart.data.datasets[1].data = data.outgoing_mbps;
+        trafficChart.update();
+
+        document.getElementById("current-in-mbps").innerHTML = `${data.current_incoming_mbps} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small>`;
+        document.getElementById("current-out-mbps").innerHTML = `${data.current_outgoing_mbps} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small>`;
+        document.getElementById("current-total-mbps").innerHTML = `${data.current_total_mbps} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small>`;
+      }
+    }
+  } catch (e) {
+    console.warn("Traffic data poll failed:", e);
+  }
+}
+
+refreshTrafficData();
+setInterval(refreshTrafficData, 15000);
+</script>
+{% endblock %}

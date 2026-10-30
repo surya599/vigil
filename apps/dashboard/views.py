@@ -1,8 +1,7 @@
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render
 from django.views import View
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Q, Sum
 from django.utils import timezone
 from datetime import timedelta
 
@@ -11,15 +10,26 @@ from rest_framework.response import Response
 from rest_framework import permissions
 
 from devices.models import Device
-from monitoring.models import DeviceMetric
+from monitoring.models import DeviceMetric, NetworkInterface, InterfaceMetric
 from alerts.models import Alert
 from analytics.models import NetworkTrafficSnapshot
+
+
+def format_bandwidth(bps: float) -> str:
+    """Helper to convert bits per second into human-readable string."""
+    if bps >= 1_000_000_000:
+        return f"{bps / 1_000_000_000:.2f} Gbps"
+    elif bps >= 1_000_000:
+        return f"{bps / 1_000_000:.2f} Mbps"
+    elif bps >= 1_000:
+        return f"{bps / 1_000:.1f} Kbps"
+    return f"{bps:.0f} bps"
 
 
 class DashboardOverviewView(LoginRequiredMixin, View):
     """
     Main NOC dashboard overview page.
-    All statistics are computed from live database records.
+    All statistics are dynamically computed from live database records.
     """
     template_name = "dashboard/overview.html"
     login_url = "accounts:login"
@@ -48,20 +58,27 @@ class DashboardOverviewView(LoginRequiredMixin, View):
         ).aggregate(v=Avg("uptime_percentage"))
         global_uptime = uptime_agg["v"] or 100.0
 
+        # Total Bandwidth Consumption
+        latest_snapshot = NetworkTrafficSnapshot.objects.order_by("-recorded_at").first()
+        if latest_snapshot:
+            total_bw_bps = latest_snapshot.total_incoming_bps + latest_snapshot.total_outgoing_bps
+        else:
+            # Derive from latest InterfaceMetrics
+            recent_iface_agg = InterfaceMetric.objects.filter(recorded_at__gte=since).aggregate(
+                in_sum=Sum("incoming_bps"),
+                out_sum=Sum("outgoing_bps"),
+            )
+            total_bw_bps = (recent_iface_agg["in_sum"] or 0.0) + (recent_iface_agg["out_sum"] or 0.0)
+
+        total_bandwidth_display = format_bandwidth(total_bw_bps)
+
         # Active alerts
         active_alerts = Alert.objects.filter(is_resolved=False)
         critical_alerts = active_alerts.filter(severity=Alert.Severity.CRITICAL)[:5]
-        recent_alerts = active_alerts.order_by("-created_at")[:8]
+        recent_alerts = active_alerts.order_by("-created_at")[:10]
 
         # Recently updated devices
-        recent_devices = Device.objects.order_by("-last_checked")[:10]
-
-        # Last 12 traffic snapshots for the mini-chart
-        traffic_data = list(
-            reversed(
-                list(NetworkTrafficSnapshot.objects.order_by("-recorded_at")[:12])
-            )
-        )
+        recent_devices = Device.objects.order_by("-updated_at")[:10]
 
         ctx = {
             "total_devices": total_devices,
@@ -72,11 +89,12 @@ class DashboardOverviewView(LoginRequiredMixin, View):
             "avg_latency": round(avg_latency, 1),
             "avg_packet_loss": round(avg_packet_loss, 2),
             "global_uptime": round(global_uptime, 2),
+            "total_bandwidth_bps": total_bw_bps,
+            "total_bandwidth_display": total_bandwidth_display,
             "active_alerts_count": active_alerts.count(),
             "critical_alerts": critical_alerts,
             "recent_alerts": recent_alerts,
             "recent_devices": recent_devices,
-            "traffic_data": traffic_data,
         }
         return render(request, self.template_name, ctx)
 
@@ -84,7 +102,10 @@ class DashboardOverviewView(LoginRequiredMixin, View):
 @api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def dashboard_stats(request):
-    """REST API version of dashboard statistics — consumed by frontend JS."""
+    """
+    REST API version of dashboard statistics — consumed by frontend JavaScript.
+    All statistics are dynamically retrieved from the backend database.
+    """
     since = timezone.now() - timedelta(minutes=5)
     recent = DeviceMetric.objects.filter(
         recorded_at__gte=since,
@@ -97,6 +118,17 @@ def dashboard_stats(request):
     uptime_agg = Device.objects.filter(monitoring_enabled=True).aggregate(
         v=Avg("uptime_percentage")
     )
+
+    # Bandwidth calculation
+    latest_snapshot = NetworkTrafficSnapshot.objects.order_by("-recorded_at").first()
+    if latest_snapshot:
+        total_bw_bps = latest_snapshot.total_incoming_bps + latest_snapshot.total_outgoing_bps
+    else:
+        recent_iface_agg = InterfaceMetric.objects.filter(recorded_at__gte=since).aggregate(
+            in_sum=Sum("incoming_bps"),
+            out_sum=Sum("outgoing_bps"),
+        )
+        total_bw_bps = (recent_iface_agg["in_sum"] or 0.0) + (recent_iface_agg["out_sum"] or 0.0)
 
     active_alerts = Alert.objects.filter(is_resolved=False)
 
@@ -112,6 +144,8 @@ def dashboard_stats(request):
             "avg_latency_ms": round(avg_latency, 2),
             "avg_packet_loss_pct": round(avg_packet_loss, 2),
             "global_uptime_pct": round(uptime_agg["v"] or 100.0, 2),
+            "total_bandwidth_bps": total_bw_bps,
+            "total_bandwidth_display": format_bandwidth(total_bw_bps),
         },
         "alerts": {
             "active_total": active_alerts.count(),

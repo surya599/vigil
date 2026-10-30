@@ -33,17 +33,17 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health_check, name="system-health"),
 
-    # Template-based application routes (namespaced)
+    # Application routes (Template UI & REST APIs namespaced cleanly)
     path("", include(("accounts.urls", "accounts"), namespace="accounts")),
     path("", include(("devices.urls", "devices"), namespace="devices")),
     path("dashboard/", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
+    path("", include(("topology.urls", "topology"), namespace="topology")),
+    path("", include(("analytics.urls", "analytics"), namespace="analytics")),
+    path("", include(("monitoring.urls", "monitoring"), namespace="monitoring")),
+    path("", include(("alerts.urls", "alerts"), namespace="alerts")),
 
-    # REST API endpoints
+    # Direct API route for dashboard stats
     path("api/dashboard/stats/", dashboard_stats, name="api-dashboard-stats"),
-    path("api/monitoring/", include("monitoring.urls")),
-    path("api/", include("alerts.urls")),
-    path("api/analytics/", include("analytics.urls")),
-    path("api/topology/", include("topology.urls")),
 ]
 
 if settings.DEBUG:
