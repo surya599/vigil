@@ -9,6 +9,12 @@
     <i data-lucide="arrow-left" style="width:13px;height:13px;"></i> All Devices
   </a>
   {% if request.user.profile.is_operator %}
+  <form method="post" action="{% url 'devices:device-ping' device.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i data-lucide="activity" style="width:13px;height:13px;"></i> Ping Device
+    </button>
+  </form>
   <a href="{% url 'devices:device-edit' device.pk %}" class="btn btn-sm btn-outline-secondary">
     <i data-lucide="edit-2" style="width:13px;height:13px;"></i> Edit
   </a>

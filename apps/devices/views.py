@@ -1,10 +1,14 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
 from django.contrib import messages
 from django.db.models import Q
-from django.shortcuts import redirect
-from rest_framework import viewsets, permissions, filters
+from django.shortcuts import redirect, get_object_or_404
+from django.http import JsonResponse
+from rest_framework import viewsets, permissions, filters, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from .models import Device
 from .forms import DeviceForm
@@ -129,6 +133,49 @@ class DeviceDeleteView(OperatorRequiredMixin, DeleteView):
         return response
 
 
+class DevicePingView(OperatorRequiredMixin, View):
+    """Triggers an on-demand ICMP health check for a device and returns result or redirects."""
+
+    def post(self, request, pk):
+        device = get_object_or_404(Device, pk=pk)
+        from monitoring.icmp import ICMPMonitoringEngine
+
+        engine = ICMPMonitoringEngine()
+        metric = engine.check_device(device, packet_count=4, timeout=1.0)
+
+        if request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):
+            return JsonResponse({
+                "status": metric.status,
+                "latency": metric.latency,
+                "packet_loss": metric.packet_loss,
+                "jitter": metric.jitter,
+                "consecutive_failures": device.consecutive_failures,
+                "uptime_percentage": float(device.uptime_percentage),
+                "recorded_at": metric.recorded_at.isoformat(),
+            })
+
+        if metric.status == Device.Status.ONLINE:
+            messages.success(
+                request,
+                f"ICMP check succeeded for '{device.name}' ({device.ip_address}): "
+                f"Status: ONLINE | RTT: {metric.latency:.1f}ms | Loss: {metric.packet_loss:.0f}%",
+            )
+        elif metric.status == Device.Status.WARNING:
+            messages.warning(
+                request,
+                f"ICMP check warning for '{device.name}' ({device.ip_address}): "
+                f"Status: WARNING | RTT: {metric.latency or 0.0:.1f}ms | Loss: {metric.packet_loss:.0f}%",
+            )
+        else:
+            messages.error(
+                request,
+                f"ICMP check failed for '{device.name}' ({device.ip_address}): "
+                f"Status: OFFLINE | 100% packet loss (Consecutive failures: {device.consecutive_failures})",
+            )
+
+        return redirect("devices:device-detail", pk=device.pk)
+
+
 # ─── REST API ViewSet ────────────────────────────────────────────────────────
 
 class DeviceViewSet(viewsets.ModelViewSet):
@@ -153,3 +200,30 @@ class DeviceViewSet(viewsets.ModelViewSet):
         if monitoring_param is not None:
             qs = qs.filter(monitoring_enabled=monitoring_param.lower() in ("true", "1"))
         return qs
+
+    @action(detail=True, methods=["post"], url_path="ping")
+    def ping(self, request, pk=None):
+        """On-demand ICMP ping check endpoint for a single device."""
+        device = self.get_object()
+        from monitoring.icmp import ICMPMonitoringEngine
+
+        engine = ICMPMonitoringEngine()
+        try:
+            count = int(request.data.get("count", 4))
+        except (ValueError, TypeError):
+            count = 4
+        try:
+            timeout = float(request.data.get("timeout", 1.0))
+        except (ValueError, TypeError):
+            timeout = 1.0
+
+        metric = engine.check_device(device, packet_count=count, timeout=timeout)
+        return Response({
+            "status": metric.status,
+            "latency": metric.latency,
+            "packet_loss": metric.packet_loss,
+            "jitter": metric.jitter,
+            "consecutive_failures": device.consecutive_failures,
+            "uptime_percentage": float(device.uptime_percentage),
+            "recorded_at": metric.recorded_at.isoformat(),
+        }, status=status.HTTP_200_OK)

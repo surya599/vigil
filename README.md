@@ -108,8 +108,8 @@ NetPulse/
 | **Phase 2** | **Django applications, database models, relationships & migrations** | **COMPLETED** |
 | **Phase 3** | **Authentication, operator/admin roles & device CRUD management** | **COMPLETED** |
 | **Phase 4** | **Professional dark NOC dashboard frontend & Django integration** | **COMPLETED** |
-| Phase 5 | ICMP monitoring engine (ping, latency, packet loss calculation) | *Upcoming / Next* |
-| Phase 6 | SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth) | *Upcoming* |
+| **Phase 5** | **ICMP monitoring engine (ping, latency, packet loss calculation)** | **COMPLETED** |
+| Phase 6 | SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth) | *Upcoming / Next* |
 | Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming* |
 | Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming* |
 | Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming* |
@@ -122,10 +122,36 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (89 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, and Navigation):
+Execute the complete test suite (107 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, and ICMP Polling Engine):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 5 (ICMP Monitoring Engine)
+
+1. **Run the Independent ICMP Monitoring Command:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py run_icmp_check --count 4 --timeout 1.0
+   ```
+   *Expected output: Scans registered devices, transmits 4 ICMP echo requests per host, measures round-trip time, calculates packet loss, updates device operational state, and logs `DeviceMetric` records to PostgreSQL.*
+
+2. **Run Continuous Polling Loop (Optional):**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py run_icmp_check --continuous --interval 30
+   ```
+
+3. **Verify On-Demand Web UI Ping:**
+   - Navigate to `http://127.0.0.1:8000/devices/` or a device detail page (e.g., `http://127.0.0.1:8000/devices/1/`).
+   - Click the **Ping Device** button.
+   - Observe immediate flash banner reporting status, measured RTT (ms), and packet loss percentage.
+   - Check the **Monitoring History** tab (`/monitoring/history/`) to verify the new metric entry.
+
+4. **Verify On-Demand REST API Ping:**
+   - Execute an authenticated POST request to `/api/devices/<id>/ping/`:
+     ```powershell
+     curl -X POST http://127.0.0.1:8000/api/devices/1/ping/ -H "Content-Type: application/json" -u "surya:Surya@534103"
+     ```
+   - Receive real-time telemetry JSON containing `status`, `latency`, `packet_loss`, `jitter`, `consecutive_failures`, and `uptime_percentage`.
 
 ### Manual Verification for Phase 4 (NOC Dashboard & Views)
 

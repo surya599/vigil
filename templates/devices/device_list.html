@@ -151,14 +151,20 @@
         </td>
         <td>
           <div class="d-flex gap-1">
-            <a href="{% url 'devices:device-detail' device.pk %}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:.2rem .5rem;">
+            <a href="{% url 'devices:device-detail' device.pk %}" class="btn btn-xs btn-outline-secondary" title="View Details" style="font-size:.72rem;padding:.2rem .5rem;">
               <i data-lucide="eye" style="width:11px;height:11px;"></i>
             </a>
             {% if request.user.profile.is_operator %}
-            <a href="{% url 'devices:device-edit' device.pk %}" class="btn btn-xs btn-outline-secondary" style="font-size:.72rem;padding:.2rem .5rem;">
+            <form method="post" action="{% url 'devices:device-ping' device.pk %}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-xs btn-outline-primary" title="Ping Device" style="font-size:.72rem;padding:.2rem .5rem;">
+                <i data-lucide="activity" style="width:11px;height:11px;"></i>
+              </button>
+            </form>
+            <a href="{% url 'devices:device-edit' device.pk %}" class="btn btn-xs btn-outline-secondary" title="Edit Device" style="font-size:.72rem;padding:.2rem .5rem;">
               <i data-lucide="edit-2" style="width:11px;height:11px;"></i>
             </a>
-            <a href="{% url 'devices:device-delete' device.pk %}" class="btn btn-xs btn-outline-danger" style="font-size:.72rem;padding:.2rem .5rem;">
+            <a href="{% url 'devices:device-delete' device.pk %}" class="btn btn-xs btn-outline-danger" title="Delete Device" style="font-size:.72rem;padding:.2rem .5rem;">
               <i data-lucide="trash-2" style="width:11px;height:11px;"></i>
             </a>
             {% endif %}
