@@ -176,6 +176,46 @@ class DevicePingView(OperatorRequiredMixin, View):
         return redirect("devices:device-detail", pk=device.pk)
 
 
+class DeviceSnmpPollView(OperatorRequiredMixin, View):
+    """Triggers an on-demand SNMP poll for a device and updates interfaces and telemetry."""
+
+    def post(self, request, pk):
+        device = get_object_or_404(Device, pk=pk)
+        if not device.snmp_enabled:
+            if request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):
+                return JsonResponse({"error": "SNMP is not enabled on this device"}, status=400)
+            messages.warning(request, f"SNMP is not enabled on device '{device.name}'.")
+            return redirect("devices:device-detail", pk=device.pk)
+
+        from monitoring.snmp import SNMPMonitoringEngine
+
+        engine = SNMPMonitoringEngine()
+        data = engine.poll_device(device, timeout=2.0)
+
+        if request.headers.get("x-requested-with") == "XMLHttpRequest" or "application/json" in request.headers.get("accept", ""):
+            return JsonResponse({
+                "is_successful": data.is_successful,
+                "sys_description": data.sys_description,
+                "sys_uptime": data.sys_uptime,
+                "interfaces_count": len(data.interfaces),
+                "error_message": data.error_message,
+            })
+
+        if data.is_successful:
+            messages.success(
+                request,
+                f"SNMP interrogation successful for '{device.name}': "
+                f"Discovered {len(data.interfaces)} interface(s). Uptime: {data.sys_uptime}.",
+            )
+        else:
+            messages.error(
+                request,
+                f"SNMP interrogation failed for '{device.name}': {data.error_message}",
+            )
+
+        return redirect("devices:device-detail", pk=device.pk)
+
+
 # ─── REST API ViewSet ────────────────────────────────────────────────────────
 
 class DeviceViewSet(viewsets.ModelViewSet):
@@ -226,4 +266,53 @@ class DeviceViewSet(viewsets.ModelViewSet):
             "consecutive_failures": device.consecutive_failures,
             "uptime_percentage": float(device.uptime_percentage),
             "recorded_at": metric.recorded_at.isoformat(),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="snmp-poll")
+    def snmp_poll(self, request, pk=None):
+        """On-demand SNMP telemetry and interface collection endpoint."""
+        device = self.get_object()
+        if not device.snmp_enabled:
+            return Response(
+                {"error": "SNMP is not enabled on this device"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from monitoring.snmp import SNMPMonitoringEngine
+
+        engine = SNMPMonitoringEngine()
+        try:
+            timeout = float(request.data.get("timeout", 2.0))
+        except (ValueError, TypeError):
+            timeout = 2.0
+
+        data = engine.poll_device(device, timeout=timeout)
+        if not data.is_successful:
+            return Response(
+                {
+                    "is_successful": False,
+                    "error": data.error_message,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response({
+            "is_successful": True,
+            "sys_description": data.sys_description,
+            "sys_name": data.sys_name,
+            "sys_uptime": data.sys_uptime,
+            "interfaces": [
+                {
+                    "index": iface.index,
+                    "name": iface.name,
+                    "description": iface.description,
+                    "mac_address": iface.mac_address,
+                    "admin_status": iface.admin_status,
+                    "oper_status": iface.oper_status,
+                    "speed_bps": iface.speed_bps,
+                    "in_octets": iface.in_octets,
+                    "out_octets": iface.out_octets,
+                }
+                for iface in data.interfaces
+            ],
         }, status=status.HTTP_200_OK)

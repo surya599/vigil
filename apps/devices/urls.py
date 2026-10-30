@@ -7,6 +7,7 @@ from .views import (
     DeviceUpdateView,
     DeviceDeleteView,
     DevicePingView,
+    DeviceSnmpPollView,
     DeviceViewSet,
 )
 
@@ -24,6 +25,7 @@ urlpatterns = [
     path("devices/<int:pk>/edit/", DeviceUpdateView.as_view(), name="device-edit"),
     path("devices/<int:pk>/delete/", DeviceDeleteView.as_view(), name="device-delete"),
     path("devices/<int:pk>/ping/", DevicePingView.as_view(), name="device-ping"),
+    path("devices/<int:pk>/snmp-poll/", DeviceSnmpPollView.as_view(), name="device-snmp-poll"),
 
     # REST API
     path("api/", include(router.urls)),

@@ -15,6 +15,14 @@
       <i data-lucide="activity" style="width:13px;height:13px;"></i> Ping Device
     </button>
   </form>
+  {% if device.snmp_enabled %}
+  <form method="post" action="{% url 'devices:device-snmp-poll' device.pk %}" class="d-inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm btn-outline-info" title="Interrogate device via SNMP">
+      <i data-lucide="network" style="width:13px;height:13px;"></i> Poll SNMP
+    </button>
+  </form>
+  {% endif %}
   <a href="{% url 'devices:device-edit' device.pk %}" class="btn btn-sm btn-outline-secondary">
     <i data-lucide="edit-2" style="width:13px;height:13px;"></i> Edit
   </a>
@@ -132,15 +140,46 @@
       {% if interfaces %}
       <div class="table-responsive">
         <table class="table table-dark table-hover mb-0" style="font-size:.8rem;">
-          <thead><tr><th>Interface</th><th>Index</th><th>IP</th><th>Speed</th><th>Op Status</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Interface</th>
+              <th>Index</th>
+              <th>MAC</th>
+              <th>Speed</th>
+              <th>Traffic (In / Out)</th>
+              <th>Op Status</th>
+            </tr>
+          </thead>
           <tbody>
             {% for iface in interfaces %}
+            {% with im=iface.latest_metric %}
             <tr>
-              <td><code style="font-size:.78rem;color:var(--noc-accent);">{{ iface.interface_name }}</code></td>
+              <td>
+                <code style="font-size:.78rem;color:var(--noc-accent);">{{ iface.interface_name }}</code>
+                {% if iface.description and iface.description != iface.interface_name %}
+                <div style="font-size:.7rem;color:var(--noc-muted);">{{ iface.description|truncatechars:35 }}</div>
+                {% endif %}
+              </td>
               <td style="color:var(--noc-muted);">{{ iface.interface_index }}</td>
-              <td style="color:var(--noc-muted);">{{ iface.ip_address|default:"—" }}</td>
+              <td style="color:var(--noc-muted);font-size:.75rem;">{{ iface.mac_address|default:"—" }}</td>
               <td style="color:var(--noc-muted);">
-                {% if iface.speed_bps %}{{ iface.speed_bps|filesizeformat|slice:"-1" }}bps{% else %}—{% endif %}
+                {% if iface.speed_bps %}
+                  {% if iface.speed_bps >= 1000000000 %}
+                    {{ iface.speed_bps|stringformat:"d"|slice:":-9" }} Gbps
+                  {% elif iface.speed_bps >= 1000000 %}
+                    {{ iface.speed_bps|stringformat:"d"|slice:":-6" }} Mbps
+                  {% else %}
+                    {{ iface.speed_bps }} bps
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td style="font-size:.75rem;">
+                {% if im %}
+                  <span class="text-success"><i data-lucide="arrow-down-left" style="width:10px;height:10px;"></i> {{ im.incoming_bps|filesizeformat }}/s</span>
+                  <span class="text-info ms-2"><i data-lucide="arrow-up-right" style="width:10px;height:10px;"></i> {{ im.outgoing_bps|filesizeformat }}/s</span>
+                {% else %}
+                  <span style="color:var(--noc-muted);">—</span>
+                {% endif %}
               </td>
               <td>
                 <span class="badge-{{ iface.operational_status }} badge rounded-pill px-2" style="font-size:.7rem;">
@@ -148,6 +187,7 @@
                 </span>
               </td>
             </tr>
+            {% endwith %}
             {% endfor %}
           </tbody>
         </table>

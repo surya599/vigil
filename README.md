@@ -109,8 +109,8 @@ NetPulse/
 | **Phase 3** | **Authentication, operator/admin roles & device CRUD management** | **COMPLETED** |
 | **Phase 4** | **Professional dark NOC dashboard frontend & Django integration** | **COMPLETED** |
 | **Phase 5** | **ICMP monitoring engine (ping, latency, packet loss calculation)** | **COMPLETED** |
-| Phase 6 | SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth) | *Upcoming / Next* |
-| Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming* |
+| **Phase 6** | **SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth)** | **COMPLETED** |
+| Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming / Next* |
 | Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming* |
 | Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming* |
 | Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming* |
@@ -122,10 +122,34 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (107 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, and ICMP Polling Engine):
+Execute the complete test suite (129 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, and SNMP Engine):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 6 (SNMP Telemetry & Interfaces)
+
+1. **Run the Independent SNMP Polling Command:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py run_snmp_poll --timeout 2.0
+   ```
+   *Expected output: Interrogates all SNMP-enabled devices via SNMPv2c/v3, updates system description and uptime, discovers interfaces (`ifTable`/`ifXTable`), and computes dynamic traffic rates (bps).*
+
+2. **Poll a Specific Host via CLI:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py run_snmp_poll --device-id 1
+   ```
+
+3. **Verify On-Demand Web UI SNMP Poll:**
+   - Log in and open a device detail page with SNMP enabled (e.g. `http://127.0.0.1:8000/devices/1/`).
+   - Click the **Poll SNMP** button in the header.
+   - The discovered interfaces, operational states, MAC addresses, speeds, and current traffic rates (In/Out Mbps) are populated in the Network Interfaces table.
+
+4. **Verify On-Demand REST API SNMP Endpoint:**
+   ```powershell
+   curl -X POST http://127.0.0.1:8000/api/devices/1/snmp-poll/ -H "Content-Type: application/json" -u "surya:Surya@534103"
+   ```
+   *Returns real-time telemetry JSON containing `sys_description`, `sys_uptime`, and the array of discovered network interfaces.*
 
 ### Manual Verification for Phase 5 (ICMP Monitoring Engine)
 
