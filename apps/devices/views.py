@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from .models import Device
 from .forms import DeviceForm
 from .serializers import DeviceSerializer
-from accounts.permissions import OperatorRequiredMixin
+from accounts.permissions import OperatorRequiredMixin, IsOperatorOrReadOnly
 
 
 class DeviceListView(LoginRequiredMixin, ListView):
@@ -222,7 +222,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
     """REST API for network devices — filterable by status, device_type, and search."""
     queryset = Device.objects.all().order_by("-updated_at")
     serializer_class = DeviceSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsOperatorOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name", "ip_address", "mac_address", "location"]
     ordering_fields = ["name", "ip_address", "status", "updated_at", "last_checked"]

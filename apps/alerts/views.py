@@ -8,7 +8,7 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from accounts.permissions import OperatorRequiredMixin
+from accounts.permissions import OperatorRequiredMixin, IsOperatorOrReadOnly
 from devices.models import Device
 from .engine import AlertEngine
 from .models import Alert, AlertThreshold
@@ -282,4 +282,4 @@ class AlertViewSet(viewsets.ModelViewSet):
 class AlertThresholdViewSet(viewsets.ModelViewSet):
     queryset = AlertThreshold.objects.all()
     serializer_class = AlertThresholdSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsOperatorOrReadOnly]

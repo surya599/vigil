@@ -115,17 +115,72 @@ NetPulse/
 | **Phase 9** | **Traffic analytics, Chart.js metrics & historical performance** | **COMPLETED** |
 | **Phase 10** | **Incident alert generation & acknowledgement workflow** | **COMPLETED** |
 | **Phase 11** | **Interactive network topology graph visualization** | **COMPLETED** |
-| Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming / Next* |
+| **Phase 12** | **Comprehensive test suite, security hardening & deployment guide** | **COMPLETED** |
+
+---
+
+## Production Deployment & Hardening Guide
+
+1. **Environment Configuration (`.env`):**
+   ```ini
+   DJANGO_SETTINGS_MODULE=config.settings.production
+   SECRET_KEY=<generate-50-char-cryptographic-secret>
+   DEBUG=False
+   ALLOWED_HOSTS=noc.example.com,127.0.0.1,localhost
+   DB_NAME=netpulse_db
+   DB_USER=postgres
+   DB_PASSWORD=<strong-db-password>
+   DB_HOST=127.0.0.1
+   DB_PORT=5432
+   REDIS_URL=redis://127.0.0.1:6379/0
+   CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+   CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+   SECURE_SSL_REDIRECT=True
+   SECURE_HSTS_SECONDS=31536000
+   ```
+
+2. **Database Migrations, Static Assets & Demo Seeding:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py migrate --noinput
+   .\.venv\Scripts\python.exe manage.py collectstatic --noinput
+   .\.venv\Scripts\python.exe manage.py seed_noc_demo
+   ```
+
+3. **Run Production ASGI Server (Daphne) & Background Services (Celery Worker + Beat):**
+   ```powershell
+   # 1. Daphne ASGI Server (HTTP + WebSocket)
+   .\.venv\Scripts\daphne.exe -b 0.0.0.0 -p 8000 config.asgi:application
+
+   # 2. Celery Background Worker
+   .\.venv\Scripts\celery.exe -A config worker -l info --concurrency=4
+
+   # 3. Celery Beat Periodic Scheduler
+   .\.venv\Scripts\celery.exe -A config beat -l info
+   ```
 
 ---
 
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (191 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, Traffic & Performance Analytics, Incident Alert Workflows, and Interactive Network Topology):
+Execute the complete test suite (198 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, Traffic & Performance Analytics, Incident Alert Workflows, Interactive Network Topology, Security Hardening, and End-to-End NOC Lifecycles):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 12 (Security Hardening, Demo Seeding & E2E Readiness)
+
+1. **Seed Complete NOC Demo Data Idempotently:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py seed_noc_demo
+   ```
+   *Seeds 7 enterprise devices across Core/Distribution/Access/Edge tiers, historical ICMP & SNMP interface metrics, daily SLA summaries, active/acknowledged incident alerts, and 6 topology links.*
+
+2. **Verify Enhanced System Health Check (`/api/health/`):**
+   ```powershell
+   curl http://127.0.0.1:8000/api/health/
+   ```
+   *Returns live status JSON including `database`, `monitored_devices`, `open_incidents`, and `version`.*
 
 ### Manual Verification for Phase 11 (Interactive Network Topology Graph Visualization)
 

@@ -12,17 +12,26 @@ from dashboard.views import dashboard_stats
 
 def health_check(request):
     from django.db import connection
+    from devices.models import Device
+    from alerts.models import Alert
+
     db_status = "healthy"
+    device_count = 0
+    active_alerts = 0
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
+        device_count = Device.objects.filter(monitoring_enabled=True).count()
+        active_alerts = Alert.objects.filter(is_resolved=False).count()
     except Exception as exc:
         db_status = f"unhealthy: {str(exc)}"
     return JsonResponse({
-        "status": "online",
+        "status": "online" if db_status == "healthy" else "degraded",
         "service": "NetPulse Network Monitoring System",
         "version": "1.0.0",
         "database": db_status,
+        "monitored_devices": device_count,
+        "open_incidents": active_alerts,
     })
 
 
