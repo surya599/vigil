@@ -114,18 +114,32 @@ NetPulse/
 | **Phase 8** | **Django Channels & WebSocket real-time broadcast engine** | **COMPLETED** |
 | **Phase 9** | **Traffic analytics, Chart.js metrics & historical performance** | **COMPLETED** |
 | **Phase 10** | **Incident alert generation & acknowledgement workflow** | **COMPLETED** |
-| Phase 11 | Interactive network topology graph visualization | *Upcoming / Next* |
-| Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming* |
+| **Phase 11** | **Interactive network topology graph visualization** | **COMPLETED** |
+| Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming / Next* |
 
 ---
 
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (183 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, Traffic & Performance Analytics, and Incident Alert Workflows):
+Execute the complete test suite (191 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, Traffic & Performance Analytics, Incident Alert Workflows, and Interactive Network Topology):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 11 (Interactive Network Topology Graph Visualization)
+
+1. **Explore the Interactive Topology Visualizer (`/topology/`):**
+   - Switch between **Hierarchical** (Core/Distribution/Access tiers), **Circular**, and **Grid** layouts.
+   - Drag individual device nodes to reposition them dynamically, or pan and zoom (`+`, `−`, `Reset View`) across the SVG canvas.
+   - Click any device node to open the **Node Inspector** showing IP, Device Type, Status, Latency/SLA, Location, and a direct link to the device detail page.
+   - Use **+ Add Link** to manually connect two devices or **Auto-Discover** to automatically map shared `/24` IPv4 subnet and interface-description links.
+
+2. **Verify Topology Graph & Auto-Discovery REST APIs:**
+   ```powershell
+   curl http://127.0.0.1:8000/api/topology/graph/ -u "surya:Surya@534103"
+   curl -X POST http://127.0.0.1:8000/api/topology/discover/ -u "surya:Surya@534103"
+   ```
 
 ### Manual Verification for Phase 10 (Incident Alert Generation & Acknowledgement Workflow)
 

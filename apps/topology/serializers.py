@@ -41,3 +41,12 @@ class NetworkConnectionSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("id", "created_at", "updated_at")
+
+    def validate(self, attrs):
+        src = attrs.get("source_device") or getattr(self.instance, "source_device", None)
+        dst = attrs.get("destination_device") or getattr(self.instance, "destination_device", None)
+        if src and dst and src.id == dst.id:
+            raise serializers.ValidationError(
+                "A device cannot connect directly to itself in topology."
+            )
+        return attrs

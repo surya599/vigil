@@ -54,3 +54,24 @@ def operator_required(view_func):
             return redirect("dashboard:overview")
         return view_func(request, *args, **kwargs)
     return _wrapped
+
+
+class IsOperatorOrReadOnly:
+    """
+    DRF permission class allowing read-only access (GET, HEAD, OPTIONS) to any
+    authenticated user, and write access (POST, PUT, PATCH, DELETE) only to
+    Operators and Administrators.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        return bool(
+            request.user.is_superuser
+            or (hasattr(request.user, "profile") and request.user.profile.is_operator)
+        )
+
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)
