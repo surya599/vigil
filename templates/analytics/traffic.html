@@ -4,7 +4,39 @@
 {% block nav_traffic %}active{% endblock %}
 
 {% block content %}
-<!-- Top Traffic Summary Cards -->
+<!-- ── Filter & Export Control Bar ───────────────────────────── -->
+<div class="noc-card mb-4">
+  <div class="p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <form method="get" id="traffic-filter-form" class="d-flex flex-wrap align-items-center gap-2">
+      <label class="form-label mb-0 me-1">Filter Device:</label>
+      <select name="device" id="device-filter-select" class="form-select form-select-sm" style="width:auto;min-width:220px;" onchange="this.form.submit()">
+        <option value="">All Monitored Devices (Aggregate)</option>
+        {% for d in devices %}
+        <option value="{{ d.id }}" {% if selected_device_id == d.id %}selected{% endif %}>
+          {{ d.name }} ({{ d.ip_address }})
+        </option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="range" id="range-input" value="{{ selected_range }}" />
+    </form>
+
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Time Range Selector">
+        <button type="button" class="btn btn-outline-secondary btn-range {% if selected_range == '1h' %}active{% endif %}" data-range="1h">1H</button>
+        <button type="button" class="btn btn-outline-secondary btn-range {% if selected_range == '6h' %}active{% endif %}" data-range="6h">6H</button>
+        <button type="button" class="btn btn-outline-secondary btn-range {% if selected_range == '24h' %}active{% endif %}" data-range="24h">24H</button>
+        <button type="button" class="btn btn-outline-secondary btn-range {% if selected_range == '7d' %}active{% endif %}" data-range="7d">7D</button>
+      </div>
+      <a href="{% url 'analytics:export-csv' %}?type=traffic&amp;range={{ selected_range }}"
+         id="btn-export-traffic-csv"
+         class="btn btn-sm btn-outline-info">
+        <i data-lucide="download" style="width:14px;height:14px;"></i> Export CSV
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ── Top Traffic Summary Cards ─────────────────────────────── -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <div class="stat-card">
@@ -32,7 +64,7 @@
         <i data-lucide="activity" style="color:var(--noc-warning);width:20px;height:20px;"></i>
       </div>
       <div class="stat-value" id="current-total-mbps">{{ current_total_mbps }} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small></div>
-      <div class="stat-label">Total Bandwidth</div>
+      <div class="stat-label">Total Bandwidth (Peak: {{ peak_total_mbps }} Mbps)</div>
     </div>
   </div>
 
@@ -47,21 +79,36 @@
   </div>
 </div>
 
-<!-- Main Bandwidth Graph -->
-<div class="noc-card mb-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i data-lucide="line-chart" style="width:14px;height:14px;"></i> Bandwidth Utilization Over Time (Chart.js)</span>
-    <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live Real-Time Telemetry</span>
+<!-- ── Bandwidth Over Time & Top Talkers Row ──────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-8">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="line-chart" style="width:14px;height:14px;"></i> Bandwidth Utilization Over Time (Chart.js)</span>
+        <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live Real-Time Telemetry</span>
+      </div>
+      <div class="p-3" style="position:relative; height:320px;">
+        <canvas id="trafficAnalyticsChart"></canvas>
+      </div>
+    </div>
   </div>
-  <div class="p-3" style="position:relative; height:340px;">
-    <canvas id="trafficAnalyticsChart"></canvas>
+
+  <div class="col-lg-4">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="bar-chart-2" style="width:14px;height:14px;"></i> Top Talker Interfaces (Mbps)</span>
+      </div>
+      <div class="p-3" style="position:relative; height:320px;">
+        <canvas id="topTalkersChart"></canvas>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Network Interface Traffic Breakdown -->
+<!-- ── Network Interface Traffic & Utilization Breakdown ─────── -->
 <div class="noc-card">
   <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i data-lucide="layers" style="width:14px;height:14px;"></i> Network Interface Telemetry</span>
+    <span><i data-lucide="layers" style="width:14px;height:14px;"></i> Network Interface Telemetry &amp; Link Utilization</span>
   </div>
   <div class="table-responsive">
     <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
@@ -74,12 +121,12 @@
           <th>Operational Status</th>
           <th>Current In (Mbps)</th>
           <th>Current Out (Mbps)</th>
+          <th>Link Utilization</th>
           <th>Last Polled</th>
         </tr>
       </thead>
       <tbody>
         {% for iface in interfaces %}
-        {% with m=iface.latest_metric %}
         <tr>
           <td>
             <a href="{% url 'devices:device-detail' iface.device.pk %}" style="color:var(--noc-text);text-decoration:none;font-weight:600;">
@@ -97,19 +144,28 @@
             </span>
           </td>
           <td style="color:var(--noc-accent);">
-            {% if m %}{{ m.incoming_bps|floatformat:1 }} bps{% else %}—{% endif %}
+            {{ iface.current_in_mbps|floatformat:2 }} Mbps
           </td>
           <td style="color:var(--noc-online);">
-            {% if m %}{{ m.outgoing_bps|floatformat:1 }} bps{% else %}—{% endif %}
+            {{ iface.current_out_mbps|floatformat:2 }} Mbps
+          </td>
+          <td style="min-width:130px;">
+            <div class="d-flex align-items-center gap-2">
+              <div class="progress flex-fill" style="height:6px;background:#21262d;">
+                <div class="progress-bar {% if iface.utilization_pct >= 80 %}bg-danger{% elif iface.utilization_pct >= 50 %}bg-warning{% else %}bg-info{% endif %}"
+                     role="progressbar"
+                     style="width:{{ iface.utilization_pct }}%;"></div>
+              </div>
+              <span style="font-size:.72rem;color:var(--noc-muted);">{{ iface.utilization_pct }}%</span>
+            </div>
           </td>
           <td style="color:var(--noc-muted);font-size:.75rem;">
             {{ iface.last_updated|timesince }} ago
           </td>
         </tr>
-        {% endwith %}
         {% empty %}
         <tr>
-          <td colspan="8" class="text-center py-4" style="color:var(--noc-muted);">
+          <td colspan="9" class="text-center py-4" style="color:var(--noc-muted);">
             No interface metrics recorded yet. Telemetry will populate upon running SNMP polling.
           </td>
         </tr>
@@ -122,6 +178,9 @@
 
 {% block extra_js %}
 <script>
+let activeRange = "{{ selected_range|default:'24h' }}";
+const selectedDeviceId = "{{ selected_device_id|default:'' }}";
+
 const trafficCtx = document.getElementById("trafficAnalyticsChart").getContext("2d");
 const trafficChart = new Chart(trafficCtx, {
   type: "line",
@@ -165,12 +224,54 @@ const trafficChart = new Chart(trafficCtx, {
   }
 });
 
+const topTalkersCtx = document.getElementById("topTalkersChart").getContext("2d");
+const topTalkersChart = new Chart(topTalkersCtx, {
+  type: "bar",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "In (Mbps)",
+        data: [],
+        backgroundColor: "#58a6ff",
+        borderRadius: 4,
+      },
+      {
+        label: "Out (Mbps)",
+        data: [],
+        backgroundColor: "#3fb950",
+        borderRadius: 4,
+      }
+    ]
+  },
+  options: {
+    indexAxis: "y",
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        beginAtZero: true,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + " Mbps" }
+      },
+      y: { grid: { display: false } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 10 } }
+    }
+  }
+});
+
 async function refreshTrafficData() {
   try {
-    const res = await fetch("{% url 'analytics:bandwidth-chart' %}?limit=40");
+    let url = `{% url 'analytics:bandwidth-chart' %}?limit=50&range=${encodeURIComponent(activeRange)}`;
+    if (selectedDeviceId) {
+      url += `&device_id=${encodeURIComponent(selectedDeviceId)}`;
+    }
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data.labels && data.labels.length > 0) {
+      if (data.labels) {
         trafficChart.data.labels = data.labels;
         trafficChart.data.datasets[0].data = data.incoming_mbps;
         trafficChart.data.datasets[1].data = data.outgoing_mbps;
@@ -181,10 +282,36 @@ async function refreshTrafficData() {
         document.getElementById("current-total-mbps").innerHTML = `${data.current_total_mbps} <small style="font-size:.9rem;color:var(--noc-muted);">Mbps</small>`;
       }
     }
+
+    const ttRes = await fetch("{% url 'analytics:top-talkers' %}?limit=6");
+    if (ttRes.ok) {
+      const tt = await ttRes.json();
+      if (tt.top_interfaces) {
+        topTalkersChart.data.labels = tt.top_interfaces.map(i => i.label);
+        topTalkersChart.data.datasets[0].data = tt.top_interfaces.map(i => i.incoming_mbps);
+        topTalkersChart.data.datasets[1].data = tt.top_interfaces.map(i => i.outgoing_mbps);
+        topTalkersChart.update();
+      }
+    }
   } catch (e) {
     console.warn("Traffic data poll failed:", e);
   }
 }
+
+document.querySelectorAll(".btn-range").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".btn-range").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeRange = btn.getAttribute("data-range");
+    const rangeInput = document.getElementById("range-input");
+    if (rangeInput) rangeInput.value = activeRange;
+    const exportBtn = document.getElementById("btn-export-traffic-csv");
+    if (exportBtn) {
+      exportBtn.href = `{% url 'analytics:export-csv' %}?type=traffic&range=${encodeURIComponent(activeRange)}`;
+    }
+    refreshTrafficData();
+  });
+});
 
 refreshTrafficData();
 setInterval(refreshTrafficData, 15000);

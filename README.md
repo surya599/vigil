@@ -112,8 +112,8 @@ NetPulse/
 | **Phase 6** | **SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth)** | **COMPLETED** |
 | **Phase 7** | **Celery background monitoring engine & Celery Beat scheduling** | **COMPLETED** |
 | **Phase 8** | **Django Channels & WebSocket real-time broadcast engine** | **COMPLETED** |
-| Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming / Next* |
-| Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming* |
+| **Phase 9** | **Traffic analytics, Chart.js metrics & historical performance** | **COMPLETED** |
+| Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming / Next* |
 | Phase 11 | Interactive network topology graph visualization | *Upcoming* |
 | Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming* |
 
@@ -122,10 +122,21 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (161 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, and Django Channels WebSockets):
+Execute the complete test suite (173 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, and Traffic & Performance Analytics):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 9 (Traffic Analytics, Chart.js Metrics & Historical Performance)
+
+1. **Explore Traffic Analytics (`/analytics/`):**
+   - Switch between time-range filters (`1H`, `6H`, `24H`, `7D`) and filter by a specific monitored device.
+   - Inspect the **Top Talker Interfaces (Mbps)** horizontal bar chart and the **Link Utilization** progress bars in the interface table.
+   - Click **Export CSV** (`/api/analytics/export-csv/?type=traffic`) to download historical bandwidth snapshots.
+
+2. **Explore Performance Monitoring & SLA History (`/monitoring/performance/`):**
+   - View multi-axis Chart.js trends for **Latency (ms)**, **Jitter (ms)**, and **Packet Loss (%)**.
+   - Inspect the **Daily SLA Availability (%)** bar chart and download latency or SLA CSV reports (`/api/analytics/export-csv/?type=latency` or `?type=sla`).
 
 ### Manual Verification for Phase 8 (Django Channels & WebSocket Real-Time Broadcast Engine)
 

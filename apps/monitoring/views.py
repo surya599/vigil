@@ -33,6 +33,7 @@ class PerformanceMonitoringView(LoginRequiredMixin, TemplateView):
 
         ctx["devices"] = devices
         ctx["selected_device"] = selected_device
+        ctx["selected_range"] = self.request.GET.get("range", "24h")
 
         # Device performance summary
         if selected_device:
@@ -41,14 +42,17 @@ class PerformanceMonitoringView(LoginRequiredMixin, TemplateView):
                 avg_lat=Avg("latency"),
                 min_lat=Min("latency"),
                 max_lat=Max("latency"),
+                avg_jitter=Avg("jitter"),
                 avg_loss=Avg("packet_loss"),
                 total_checks=Count("id"),
             )
             ctx["avg_latency"] = round(agg["avg_lat"] or 0.0, 1)
             ctx["min_latency"] = round(agg["min_lat"] or 0.0, 1)
             ctx["max_latency"] = round(agg["max_lat"] or 0.0, 1)
+            ctx["avg_jitter"] = round(agg["avg_jitter"] or 0.0, 2)
             ctx["avg_loss"] = round(agg["avg_loss"] or 0.0, 1)
             ctx["total_checks"] = agg["total_checks"] or 0
+            ctx["daily_summaries"] = selected_device.daily_summaries.order_by("-date")[:14]
         return ctx
 
 

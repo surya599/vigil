@@ -4,11 +4,11 @@
 {% block nav_performance %}active{% endblock %}
 
 {% block content %}
-<!-- Device Selection & Filter Bar -->
+<!-- ── Device Selection & Time Range Filter Bar ───────────────── -->
 <div class="noc-card mb-4">
   <div class="p-3">
     <form method="get" class="row g-2 align-items-center">
-      <div class="col-md-6 col-lg-4">
+      <div class="col-md-5 col-lg-4">
         <label class="form-label mb-1">Select Monitored Device</label>
         <select name="device" class="form-select form-select-sm" onchange="this.form.submit()">
           {% for d in devices %}
@@ -20,14 +20,25 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-md-6 col-lg-8 text-md-end mt-3 mt-md-0">
+      <div class="col-md-7 col-lg-8 d-flex flex-wrap justify-content-md-end align-items-center gap-2 mt-3 mt-md-0">
         {% if selected_device %}
         <span class="badge rounded-pill px-3 py-1 badge-{{ selected_device.status }}">
           ● Status: {{ selected_device.get_status_display }}
         </span>
-        <span class="badge rounded-pill px-3 py-1 bg-dark border border-secondary ms-1">
-          Poll Interval: {{ selected_device.polling_interval }}s
+        <span class="badge rounded-pill px-3 py-1 bg-dark border border-secondary">
+          SLA: {{ selected_device.uptime_percentage }}%
         </span>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Performance Time Range">
+          <button type="button" class="btn btn-outline-secondary btn-perf-range {% if selected_range == '1h' %}active{% endif %}" data-range="1h">1H</button>
+          <button type="button" class="btn btn-outline-secondary btn-perf-range {% if selected_range == '6h' %}active{% endif %}" data-range="6h">6H</button>
+          <button type="button" class="btn btn-outline-secondary btn-perf-range {% if selected_range == '24h' %}active{% endif %}" data-range="24h">24H</button>
+          <button type="button" class="btn btn-outline-secondary btn-perf-range {% if selected_range == '7d' %}active{% endif %}" data-range="7d">7D</button>
+        </div>
+        <a href="{% url 'analytics:export-csv' %}?type=latency&amp;device_id={{ selected_device.id }}&amp;range={{ selected_range }}"
+           id="btn-export-perf-csv"
+           class="btn btn-sm btn-outline-info">
+          <i data-lucide="download" style="width:14px;height:14px;"></i> Export CSV
+        </a>
         {% endif %}
       </div>
     </form>
@@ -35,57 +46,84 @@
 </div>
 
 {% if selected_device %}
-<!-- Performance Indicator Cards -->
+<!-- ── Performance Indicator Cards ────────────────────────────── -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
         <i data-lucide="timer" style="color:var(--noc-warning);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value">{{ avg_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-value" id="perf-avg-latency">{{ avg_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
       <div class="stat-label">Average Latency</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
         <i data-lucide="arrow-down" style="color:var(--noc-online);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-online);">{{ min_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-value" id="perf-min-latency" style="color:var(--noc-online);">{{ min_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
       <div class="stat-label">Minimum Latency</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(248,81,73,.12);">
         <i data-lucide="arrow-up" style="color:var(--noc-offline);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-offline);">{{ max_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-value" id="perf-max-latency" style="color:var(--noc-offline);">{{ max_latency }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
       <div class="stat-label">Peak Latency</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-6 col-lg">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="activity" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="perf-avg-jitter" style="color:var(--noc-accent);">{{ avg_jitter }} <small style="font-size:.9rem;color:var(--noc-muted);">ms</small></div>
+      <div class="stat-label">Avg Jitter (RFC 3550)</div>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-6 col-lg">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(248,81,73,.08);">
         <i data-lucide="percent" style="color:var(--noc-offline);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value">{{ avg_loss }}<small style="font-size:.9rem;color:var(--noc-muted);">%</small></div>
+      <div class="stat-value" id="perf-avg-loss">{{ avg_loss }}<small style="font-size:.9rem;color:var(--noc-muted);">%</small></div>
       <div class="stat-label">Avg Packet Loss</div>
     </div>
   </div>
 </div>
 
-<!-- Performance Chart -->
-<div class="noc-card mb-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i data-lucide="activity" style="width:14px;height:14px;"></i> {{ selected_device.name }} Latency &amp; Loss Trends</span>
-    <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live ICMP Telemetry</span>
+<!-- ── Charts Row: Latency/Jitter/Loss & SLA History ──────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-8">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="activity" style="width:14px;height:14px;"></i> {{ selected_device.name }} Latency, Jitter &amp; Loss Trends</span>
+        <span class="badge rounded-pill bg-dark border border-secondary" style="font-size:.7rem;">Live ICMP Telemetry</span>
+      </div>
+      <div class="p-3" style="position:relative; height:320px;">
+        <canvas id="performanceChart"></canvas>
+      </div>
+    </div>
   </div>
-  <div class="p-3" style="position:relative; height:320px;">
-    <canvas id="performanceChart"></canvas>
+
+  <div class="col-lg-4">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="shield-check" style="width:14px;height:14px;"></i> Daily SLA Availability (%)</span>
+        <a href="{% url 'analytics:export-csv' %}?type=sla&amp;device_id={{ selected_device.id }}"
+           style="font-size:.7rem;color:var(--noc-accent);text-decoration:none;">CSV</a>
+      </div>
+      <div class="p-3" style="position:relative; height:320px;">
+        <canvas id="slaHistoryChart"></canvas>
+      </div>
+    </div>
   </div>
 </div>
 {% else %}
@@ -100,6 +138,9 @@
 {% block extra_js %}
 {% if selected_device %}
 <script>
+let activePerfRange = "{{ selected_range|default:'24h' }}";
+const currentDeviceId = "{{ selected_device.id }}";
+
 const perfCtx = document.getElementById("performanceChart").getContext("2d");
 const perfChart = new Chart(perfCtx, {
   type: "line",
@@ -114,7 +155,18 @@ const perfChart = new Chart(perfCtx, {
         yAxisID: "yLat",
         tension: 0.35,
         borderWidth: 2,
-        pointRadius: 3,
+        pointRadius: 2,
+      },
+      {
+        label: "Jitter (ms)",
+        data: [],
+        borderColor: "#58a6ff",
+        backgroundColor: "rgba(88,166,255,0.08)",
+        yAxisID: "yLat",
+        tension: 0.35,
+        borderWidth: 2,
+        borderDash: [4, 4],
+        pointRadius: 2,
       },
       {
         label: "Packet Loss (%)",
@@ -124,7 +176,7 @@ const perfChart = new Chart(perfCtx, {
         yAxisID: "yLoss",
         tension: 0.35,
         borderWidth: 2,
-        pointRadius: 3,
+        pointRadius: 2,
       }
     ]
   },
@@ -155,22 +207,80 @@ const perfChart = new Chart(perfCtx, {
   }
 });
 
+const slaCtx = document.getElementById("slaHistoryChart").getContext("2d");
+const slaChart = new Chart(slaCtx, {
+  type: "bar",
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: "Daily Uptime (%)",
+        data: [],
+        backgroundColor: "#3fb950",
+        borderRadius: 4,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        min: 0,
+        max: 100,
+        grid: { color: "#21262d" },
+        ticks: { callback: v => v + "%" }
+      },
+      x: { grid: { display: false } }
+    },
+    plugins: {
+      legend: { position: "top", labels: { boxWidth: 10 } }
+    }
+  }
+});
+
 async function refreshPerfData() {
   try {
-    const res = await fetch("{% url 'analytics:latency-chart' %}?device_id={{ selected_device.id }}&limit=40");
+    const res = await fetch(
+      `{% url 'analytics:latency-chart' %}?device_id=${currentDeviceId}&limit=50&range=${encodeURIComponent(activePerfRange)}`
+    );
     if (res.ok) {
       const d = await res.json();
-      if (d.labels && d.labels.length > 0) {
+      if (d.labels) {
         perfChart.data.labels = d.labels;
         perfChart.data.datasets[0].data = d.latency_ms;
-        perfChart.data.datasets[1].data = d.packet_loss_pct;
+        perfChart.data.datasets[1].data = d.jitter_ms || [];
+        perfChart.data.datasets[2].data = d.packet_loss_pct;
         perfChart.update();
+      }
+    }
+
+    const slaRes = await fetch(`{% url 'analytics:sla-summary' %}?device_id=${currentDeviceId}&days=14`);
+    if (slaRes.ok) {
+      const s = await slaRes.json();
+      if (s.labels && s.labels.length > 0) {
+        slaChart.data.labels = s.labels;
+        slaChart.data.datasets[0].data = s.uptime_pct;
+        slaChart.update();
       }
     }
   } catch (err) {
     console.warn("Performance data poll error:", err);
   }
 }
+
+document.querySelectorAll(".btn-perf-range").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".btn-perf-range").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    activePerfRange = btn.getAttribute("data-range");
+    const exportBtn = document.getElementById("btn-export-perf-csv");
+    if (exportBtn) {
+      exportBtn.href = `{% url 'analytics:export-csv' %}?type=latency&device_id=${currentDeviceId}&range=${encodeURIComponent(activePerfRange)}`;
+    }
+    refreshPerfData();
+  });
+});
 
 refreshPerfData();
 setInterval(refreshPerfData, 15000);
