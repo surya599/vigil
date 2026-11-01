@@ -152,6 +152,45 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 300  # 5 minutes hard limit
+
+# Celery Beat Periodic Scheduling
+CELERY_BEAT_SCHEDULE = {
+    "icmp-sweep-periodic": {
+        "task": "monitoring.tasks.task_icmp_sweep",
+        "schedule": 30.0,
+        "options": {"expires": 25},
+    },
+    "snmp-sweep-periodic": {
+        "task": "monitoring.tasks.task_snmp_sweep",
+        "schedule": 60.0,
+        "options": {"expires": 50},
+    },
+    "traffic-snapshot-periodic": {
+        "task": "monitoring.tasks.task_aggregate_traffic_snapshots",
+        "schedule": 60.0,
+        "options": {"expires": 50},
+    },
+    "daily-summary-rollup": {
+        "task": "monitoring.tasks.task_generate_daily_summaries",
+        "schedule": 3600.0,
+        "options": {"expires": 3500},
+    },
+    "prune-old-metrics-daily": {
+        "task": "monitoring.tasks.task_cleanup_historical_metrics",
+        "schedule": 86400.0,
+        "options": {"expires": 43200},
+    },
+}
+
+# Cache Configuration (Used for concurrency deduplication locks)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "netpulse-default-cache",
+    }
+}
 
 # Authentication & session settings
 LOGIN_URL = "accounts:login"

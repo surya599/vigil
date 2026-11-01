@@ -110,8 +110,8 @@ NetPulse/
 | **Phase 4** | **Professional dark NOC dashboard frontend & Django integration** | **COMPLETED** |
 | **Phase 5** | **ICMP monitoring engine (ping, latency, packet loss calculation)** | **COMPLETED** |
 | **Phase 6** | **SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth)** | **COMPLETED** |
-| Phase 7 | Celery background monitoring engine & Celery Beat scheduling | *Upcoming / Next* |
-| Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming* |
+| **Phase 7** | **Celery background monitoring engine & Celery Beat scheduling** | **COMPLETED** |
+| Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming / Next* |
 | Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming* |
 | Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming* |
 | Phase 11 | Interactive network topology graph visualization | *Upcoming* |
@@ -122,10 +122,33 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (129 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, and SNMP Engine):
+Execute the complete test suite (144 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, and Celery Background Tasks & Beat Schedules):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 7 (Celery Background Tasks & Beat Scheduling)
+
+1. **Start the Celery Worker (Production / Redis Mode):**
+   ```powershell
+   .\.venv\Scripts\celery.exe -A config worker -l info --pool=solo
+   ```
+
+2. **Start the Celery Beat Scheduler:**
+   ```powershell
+   .\.venv\Scripts\celery.exe -A config beat -l info
+   ```
+   *Expected periodic schedule:*
+   - `icmp-sweep-periodic` (every 30s) → `monitoring.tasks.task_icmp_sweep`
+   - `snmp-sweep-periodic` (every 60s) → `monitoring.tasks.task_snmp_sweep`
+   - `traffic-snapshot-periodic` (every 60s) → `monitoring.tasks.task_aggregate_traffic_snapshots`
+   - `daily-summary-rollup` (every 3600s) → `monitoring.tasks.task_generate_daily_summaries`
+   - `prune-old-metrics-daily` (every 86400s) → `monitoring.tasks.task_cleanup_historical_metrics`
+
+3. **Execute Tasks Directly via Django Shell (Eager / Dev Mode):**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py shell -c "from monitoring.tasks import task_icmp_sweep, task_aggregate_traffic_snapshots; print(task_icmp_sweep.apply().get()); print(task_aggregate_traffic_snapshots.apply().get())"
+   ```
 
 ### Manual Verification for Phase 6 (SNMP Telemetry & Interfaces)
 
