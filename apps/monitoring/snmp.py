@@ -602,6 +602,15 @@ class SNMPMonitoringEngine:
                 recorded_at=now,
             )
 
+            # Evaluate Bandwidth Utilization Threshold (THRESHOLD_EXCEEDED alert)
+            from alerts.engine import AlertEngine
+            AlertEngine.evaluate_interface_bandwidth(
+                device=device,
+                interface=iface,
+                in_bps=in_bps,
+                out_bps=out_bps,
+            )
+
         broadcast_snmp_update(
             device,
             data,

@@ -113,8 +113,8 @@ NetPulse/
 | **Phase 7** | **Celery background monitoring engine & Celery Beat scheduling** | **COMPLETED** |
 | **Phase 8** | **Django Channels & WebSocket real-time broadcast engine** | **COMPLETED** |
 | **Phase 9** | **Traffic analytics, Chart.js metrics & historical performance** | **COMPLETED** |
-| Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming / Next* |
-| Phase 11 | Interactive network topology graph visualization | *Upcoming* |
+| **Phase 10** | **Incident alert generation & acknowledgement workflow** | **COMPLETED** |
+| Phase 11 | Interactive network topology graph visualization | *Upcoming / Next* |
 | Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming* |
 
 ---
@@ -122,10 +122,23 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (173 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, and Traffic & Performance Analytics):
+Execute the complete test suite (183 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, Django Channels WebSockets, Traffic & Performance Analytics, and Incident Alert Workflows):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 10 (Incident Alert Generation & Acknowledgement Workflow)
+
+1. **Explore the Incident & Alert Management Dashboard (`/alerts/`):**
+   - View the 6 NOC Incident KPI cards including **Critical**, **Warnings**, **Unacknowledged**, **Resolved**, **MTTA (Mean Time To Acknowledge)**, and **MTTR (Mean Time To Resolve)**.
+   - Filter incidents by **Device**, **Severity**, **Alert Type**, or free-text **Search**.
+   - Use **Acknowledge All** or **Resolve All Active** bulk operator buttons, or acknowledge/resolve individual alerts.
+
+2. **Verify Incident Summary & Bulk REST APIs:**
+   ```powershell
+   curl http://127.0.0.1:8000/api/alerts/summary/ -u "surya:Surya@534103"
+   curl -X POST http://127.0.0.1:8000/api/alerts/bulk-action/ -H "Content-Type: application/json" -d "{\"action\": \"acknowledge\"}" -u "surya:Surya@534103"
+   ```
 
 ### Manual Verification for Phase 9 (Traffic Analytics, Chart.js Metrics & Historical Performance)
 

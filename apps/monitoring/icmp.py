@@ -310,44 +310,25 @@ class ICMPMonitoringEngine:
     def _evaluate_alerts(self, device, result: ICMPResult, new_status: str, threshold, now):
         """
         Manages the alert lifecycle: generates critical alerts on failure,
-        warning alerts on latency/packet loss degradation, and auto-resolves
-        active offline alerts when device recovers.
+        warning/critical alerts on latency/packet loss degradation (with severity escalation),
+        and auto-resolves active alerts when device recovers.
         """
+        from alerts.engine import AlertEngine
         from alerts.models import Alert
-        from monitoring.broadcaster import broadcast_alert_event
 
         # 1. Device Offline Alert
         if new_status == "offline":
-            # Only create an alert if no active (unresolved) DEVICE_OFFLINE alert exists
-            active_offline = Alert.objects.filter(
+            AlertEngine.trigger_or_escalate_alert(
                 device=device,
                 alert_type=Alert.AlertType.DEVICE_OFFLINE,
-                is_resolved=False,
-            ).first()
-
-            if not active_offline:
-                new_alert = Alert.objects.create(
-                    device=device,
-                    alert_type=Alert.AlertType.DEVICE_OFFLINE,
-                    severity=Alert.Severity.CRITICAL,
-                    description=(
-                        f"Device '{device.name}' ({device.ip_address}) is unreachable after "
-                        f"{device.consecutive_failures} consecutive failed ICMP checks. 100% packet loss."
-                    ),
-                    created_at=now,
-                )
-                broadcast_alert_event(new_alert, event="created")
-                logger.warning("Triggered CRITICAL DEVICE_OFFLINE alert for '%s'", device.name)
-        elif new_status == "online":
-            # Auto-resolve any active DEVICE_OFFLINE alerts (Self-healing)
-            active_offline_alerts = Alert.objects.filter(
-                device=device,
-                alert_type=Alert.AlertType.DEVICE_OFFLINE,
-                is_resolved=False,
+                severity=Alert.Severity.CRITICAL,
+                description=(
+                    f"Device '{device.name}' ({device.ip_address}) is unreachable after "
+                    f"{device.consecutive_failures} consecutive failed ICMP checks. 100% packet loss."
+                ),
             )
-            for alert in active_offline_alerts:
-                alert.resolve()
-                logger.info("Auto-resolved DEVICE_OFFLINE alert #%d for '%s'", alert.id, device.name)
+        elif new_status == "online":
+            AlertEngine.auto_resolve_alerts(device, Alert.AlertType.DEVICE_OFFLINE)
 
         # 2. High Latency Alert
         if result.avg_latency is not None and result.avg_latency >= threshold.high_latency_warning_ms:
@@ -356,32 +337,17 @@ class ICMPMonitoringEngine:
                 if result.avg_latency >= threshold.high_latency_critical_ms
                 else Alert.Severity.WARNING
             )
-            active_latency = Alert.objects.filter(
+            AlertEngine.trigger_or_escalate_alert(
                 device=device,
                 alert_type=Alert.AlertType.HIGH_LATENCY,
-                is_resolved=False,
-            ).first()
-
-            if not active_latency:
-                new_alert = Alert.objects.create(
-                    device=device,
-                    alert_type=Alert.AlertType.HIGH_LATENCY,
-                    severity=severity,
-                    description=(
-                        f"High response time on '{device.name}' ({device.ip_address}): "
-                        f"{result.avg_latency:.1f}ms exceeds threshold ({threshold.high_latency_warning_ms:.1f}ms)."
-                    ),
-                    created_at=now,
-                )
-                broadcast_alert_event(new_alert, event="created")
+                severity=severity,
+                description=(
+                    f"High response time on '{device.name}' ({device.ip_address}): "
+                    f"{result.avg_latency:.1f}ms exceeds threshold ({threshold.high_latency_warning_ms:.1f}ms)."
+                ),
+            )
         elif result.avg_latency is not None and result.avg_latency < threshold.high_latency_warning_ms:
-            # Auto-resolve high latency alerts
-            for alert in Alert.objects.filter(
-                device=device,
-                alert_type=Alert.AlertType.HIGH_LATENCY,
-                is_resolved=False,
-            ):
-                alert.resolve()
+            AlertEngine.auto_resolve_alerts(device, Alert.AlertType.HIGH_LATENCY)
 
         # 3. Packet Loss Alert
         if result.packet_loss >= threshold.packet_loss_warning_pct and result.packet_loss < 100.0:
@@ -390,31 +356,17 @@ class ICMPMonitoringEngine:
                 if result.packet_loss >= threshold.packet_loss_critical_pct
                 else Alert.Severity.WARNING
             )
-            active_loss = Alert.objects.filter(
+            AlertEngine.trigger_or_escalate_alert(
                 device=device,
                 alert_type=Alert.AlertType.PACKET_LOSS,
-                is_resolved=False,
-            ).first()
-
-            if not active_loss:
-                new_alert = Alert.objects.create(
-                    device=device,
-                    alert_type=Alert.AlertType.PACKET_LOSS,
-                    severity=severity,
-                    description=(
-                        f"Packet loss detected on '{device.name}' ({device.ip_address}): "
-                        f"{result.packet_loss:.1f}% packet loss."
-                    ),
-                    created_at=now,
-                )
-                broadcast_alert_event(new_alert, event="created")
+                severity=severity,
+                description=(
+                    f"Packet loss detected on '{device.name}' ({device.ip_address}): "
+                    f"{result.packet_loss:.1f}% packet loss."
+                ),
+            )
         elif result.packet_loss < threshold.packet_loss_warning_pct:
-            for alert in Alert.objects.filter(
-                device=device,
-                alert_type=Alert.AlertType.PACKET_LOSS,
-                is_resolved=False,
-            ):
-                alert.resolve()
+            AlertEngine.auto_resolve_alerts(device, Alert.AlertType.PACKET_LOSS)
 
     def check_all_devices(
         self,

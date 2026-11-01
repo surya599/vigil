@@ -4,52 +4,76 @@
 {% block nav_alerts %}active{% endblock %}
 
 {% block content %}
-<!-- Top Alert Summary -->
+<!-- ── Top Alert & Incident KPI Cards ────────────────────────── -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg-2">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(248,81,73,.15);">
         <i data-lucide="alert-circle" style="color:var(--noc-offline);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-offline);">{{ critical_count }}</div>
+      <div class="stat-value" id="kpi-critical-count" style="color:var(--noc-offline);">{{ critical_count }}</div>
       <div class="stat-label">Critical Alarms</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg-2">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(210,153,34,.15);">
         <i data-lucide="alert-triangle" style="color:var(--noc-warning);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-warning);">{{ warning_count }}</div>
+      <div class="stat-value" id="kpi-warning-count" style="color:var(--noc-warning);">{{ warning_count }}</div>
       <div class="stat-label">Warnings</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg-2">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
         <i data-lucide="bell" style="color:var(--noc-accent);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value">{{ unack_count }}</div>
+      <div class="stat-value" id="kpi-unack-count">{{ unack_count }}</div>
       <div class="stat-label">Unacknowledged</div>
     </div>
   </div>
 
-  <div class="col-6 col-md-3">
+  <div class="col-6 col-md-4 col-lg-2">
     <div class="stat-card">
       <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
         <i data-lucide="check-circle" style="color:var(--noc-online);width:20px;height:20px;"></i>
       </div>
-      <div class="stat-value" style="color:var(--noc-online);">{{ resolved_count }}</div>
+      <div class="stat-value" id="kpi-resolved-count" style="color:var(--noc-online);">{{ resolved_count }}</div>
       <div class="stat-label">Resolved Incidents</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(88,166,255,.12);">
+        <i data-lucide="clock" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="kpi-mtta" style="font-size:1.5rem;">
+        {{ mtta_minutes }} <small style="font-size:.8rem;color:var(--noc-muted);">m</small>
+      </div>
+      <div class="stat-label">MTTA (Mean Ack)</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-4 col-lg-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="zap" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="kpi-mttr" style="font-size:1.5rem;color:var(--noc-online);">
+        {{ mttr_minutes }} <small style="font-size:.8rem;color:var(--noc-muted);">m</small>
+      </div>
+      <div class="stat-label">MTTR (Mean Resolve)</div>
     </div>
   </div>
 </div>
 
-<!-- Tabs & Filter Bar -->
+<!-- ── Tabs, Bulk Actions & Filter Bar ───────────────────────── -->
 <div class="noc-card mb-4">
-  <div class="card-header border-bottom-0 pb-0">
+  <div class="card-header border-bottom-0 pb-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
     <ul class="nav nav-tabs border-bottom-0" style="gap:.5rem;">
       <li class="nav-item">
         <a class="nav-link {% if current_tab == 'active' %}active bg-transparent border-bottom-0 text-white fw-bold{% else %}text-muted{% endif %}"
@@ -70,13 +94,46 @@
         </a>
       </li>
     </ul>
+
+    {% if request.user.profile.is_operator and active_count > 0 %}
+    <div class="d-flex gap-2 pb-2">
+      {% if unack_count > 0 %}
+      <form method="post" style="display:inline;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="acknowledge_all">
+        <button type="submit" class="btn btn-sm btn-outline-warning" id="btn-bulk-ack" style="font-size:.75rem;">
+          <i data-lucide="check" style="width:13px;height:13px;"></i> Acknowledge All ({{ unack_count }})
+        </button>
+      </form>
+      {% endif %}
+      <form method="post" style="display:inline;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="resolve_all">
+        <button type="submit" class="btn btn-sm btn-outline-success" id="btn-bulk-resolve" style="font-size:.75rem;">
+          <i data-lucide="check-circle-2" style="width:13px;height:13px;"></i> Resolve All Active
+        </button>
+      </form>
+    </div>
+    {% endif %}
   </div>
 
   <div class="p-3 border-top" style="border-color:var(--noc-border) !important;">
     <form method="get" class="row g-2 align-items-end">
       <input type="hidden" name="tab" value="{{ current_tab }}">
 
-      <div class="col-md-4">
+      <div class="col-md-3">
+        <label class="form-label mb-1">Device Host</label>
+        <select name="device" class="form-select form-select-sm">
+          <option value="">All Monitored Devices</option>
+          {% for d in devices %}
+          <option value="{{ d.id }}" {% if current_device == d.id|stringformat:"s" %}selected{% endif %}>
+            Host {{ d.ip_address }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
         <label class="form-label mb-1">Severity</label>
         <select name="severity" class="form-select form-select-sm">
           <option value="">All Severities</option>
@@ -86,7 +143,7 @@
         </select>
       </div>
 
-      <div class="col-md-5">
+      <div class="col-md-3">
         <label class="form-label mb-1">Alert Type</label>
         <select name="alert_type" class="form-select form-select-sm">
           <option value="">All Alert Types</option>
@@ -96,7 +153,13 @@
         </select>
       </div>
 
-      <div class="col-md-3 d-flex gap-2">
+      <div class="col-md-2">
+        <label class="form-label mb-1">Search</label>
+        <input type="text" name="q" value="{{ search_query }}" class="form-control form-control-sm"
+               placeholder="IP, host, or text...">
+      </div>
+
+      <div class="col-md-2 d-flex gap-2">
         <button type="submit" class="btn btn-sm btn-noc-primary flex-fill">Filter</button>
         <a href="?tab={{ current_tab }}" class="btn btn-sm btn-outline-secondary">Reset</a>
       </div>
@@ -104,7 +167,7 @@
   </div>
 </div>
 
-<!-- Alerts Table -->
+<!-- ── Alerts Table ──────────────────────────────────────────── -->
 <div class="noc-table mb-4">
   <table class="table table-dark table-hover mb-0" style="font-size:.82rem;">
     <thead>
@@ -113,14 +176,14 @@
         <th>Device</th>
         <th>Alert Type</th>
         <th>Description</th>
-        <th>Status</th>
+        <th>Status &amp; Audit</th>
         <th>Triggered</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for alert in alerts %}
-      <tr class="alert-{{ alert.severity }}">
+      <tr class="alert-{{ alert.severity }}" id="alert-row-{{ alert.id }}">
         <td>
           <span class="badge rounded-pill px-2"
                 style="{% if alert.severity == 'critical' %}background:rgba(248,81,73,.2);color:#f85149;border:1px solid #f85149;{% elif alert.severity == 'warning' %}background:rgba(210,153,34,.2);color:#d29922;border:1px solid #d29922;{% else %}background:rgba(88,166,255,.2);color:#58a6ff;border:1px solid #58a6ff;{% endif %}font-size:.7rem;">
@@ -134,12 +197,15 @@
           <div style="font-size:.72rem;color:var(--noc-muted);">{{ alert.device.ip_address }}</div>
         </td>
         <td style="font-weight:500;">{{ alert.get_alert_type_display }}</td>
-        <td style="color:var(--noc-muted);max-width:320px;" class="text-truncate">
+        <td style="color:var(--noc-muted);max-width:340px;" class="text-truncate" title="{{ alert.description }}">
           {{ alert.description }}
         </td>
         <td>
           {% if alert.is_resolved %}
             <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size:.7rem;">Resolved</span>
+            {% if alert.acknowledged_by %}
+            <div style="font-size:.68rem;color:var(--noc-muted);">Ack: {{ alert.acknowledged_by.username }}</div>
+            {% endif %}
           {% elif alert.is_acknowledged %}
             <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size:.7rem;">
               Ack by {{ alert.acknowledged_by.username }}
@@ -181,7 +247,7 @@
       <tr>
         <td colspan="7" class="text-center py-5" style="color:var(--noc-muted);">
           <i data-lucide="shield-check" style="width:32px;height:32px;color:var(--noc-online);display:block;margin:0 auto .5rem;"></i>
-          No incidents reported for this tab.
+          No incidents reported for this filter.
         </td>
       </tr>
       {% endfor %}
@@ -195,7 +261,7 @@
   <ul class="pagination pagination-sm justify-content-end">
     {% if page_obj.has_previous %}
     <li class="page-item">
-      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}page={{ page_obj.previous_page_number }}">‹ Prev</a>
+      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}{% if current_type %}alert_type={{ current_type }}&{% endif %}{% if current_device %}device={{ current_device }}&{% endif %}page={{ page_obj.previous_page_number }}">‹ Prev</a>
     </li>
     {% endif %}
     <li class="page-item disabled">
@@ -203,7 +269,7 @@
     </li>
     {% if page_obj.has_next %}
     <li class="page-item">
-      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}page={{ page_obj.next_page_number }}">Next ›</a>
+      <a class="page-link" href="?tab={{ current_tab }}&{% if current_severity %}severity={{ current_severity }}&{% endif %}{% if current_type %}alert_type={{ current_type }}&{% endif %}{% if current_device %}device={{ current_device }}&{% endif %}page={{ page_obj.next_page_number }}">Next ›</a>
     </li>
     {% endif %}
   </ul>
