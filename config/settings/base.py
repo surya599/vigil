@@ -28,6 +28,7 @@ ALLOWED_HOSTS = [
 
 # Application definition
 DJANGO_APPS = [
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -37,6 +38,7 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
+    "channels",
     "rest_framework",
 ]
 
@@ -190,6 +192,13 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "netpulse-default-cache",
     }
+}
+
+# Django Channels Default Layer (overridden in production.py with RedisChannelLayer)
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
 }
 
 # Authentication & session settings

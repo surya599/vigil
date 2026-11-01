@@ -271,6 +271,9 @@ def task_aggregate_traffic_snapshots():
         total_outgoing_bps=total_out_bps,
     )
 
+    from monitoring.broadcaster import broadcast_traffic_snapshot
+    broadcast_traffic_snapshot(snapshot)
+
     logger.info(
         "Recorded NetworkTrafficSnapshot #%d at %s: in=%.2f Mbps, out=%.2f Mbps, online=%d/%d",
         snapshot.id,

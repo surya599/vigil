@@ -168,7 +168,7 @@
           <tbody id="device-table-body">
             {% for device in recent_devices %}
             {% with m=device.latest_metric %}
-            <tr>
+            <tr data-device-id="{{ device.pk }}">
               <td>
                 <a href="{% url 'devices:device-detail' device.pk %}"
                    style="color:var(--noc-text);text-decoration:none;font-weight:600;">
@@ -177,19 +177,19 @@
               </td>
               <td><code style="font-size:.78rem;color:var(--noc-accent);">{{ device.ip_address }}</code></td>
               <td style="color:var(--noc-muted);font-size:.78rem;">{{ device.get_device_type_display }}</td>
-              <td>
+              <td class="device-status-cell">
                 <span class="badge rounded-pill px-2 badge-{{ device.status }}" style="font-size:.7rem;">
                   ● {{ device.get_status_display }}
                 </span>
               </td>
-              <td style="font-size:.8rem;">
+              <td class="device-latency-cell" style="font-size:.8rem;">
                 {% if m and m.latency is not None %}
                   <span class="{% if m.latency > 300 %}text-danger{% elif m.latency > 100 %}text-warning{% else %}text-success{% endif %}">
                     {{ m.latency|floatformat:1 }}ms
                   </span>
                 {% else %}—{% endif %}
               </td>
-              <td style="color:var(--noc-muted);font-size:.75rem;">
+              <td class="device-checked-cell" style="color:var(--noc-muted);font-size:.75rem;">
                 {% if device.last_checked %}{{ device.last_checked|timesince }} ago{% else %}Never{% endif %}
               </td>
             </tr>
@@ -281,7 +281,7 @@ Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 
 // ── Bandwidth Chart ──────────────────────────────────────────
 const bwCtx = document.getElementById("bandwidthChart").getContext("2d");
-const bandwidthChart = new Chart(bwCtx, {
+const bandwidthChart = window.bandwidthChart = new Chart(bwCtx, {
   type: "line",
   data: {
     labels: [],
@@ -328,7 +328,7 @@ const bandwidthChart = new Chart(bwCtx, {
 
 // ── Device Status Donut Chart ────────────────────────────────
 const donutCtx = document.getElementById("deviceStatusChart").getContext("2d");
-const deviceStatusChart = new Chart(donutCtx, {
+const deviceStatusChart = window.deviceStatusChart = new Chart(donutCtx, {
   type: "doughnut",
   data: {
     labels: ["Online", "Warning", "Offline", "Unknown"],
@@ -351,7 +351,7 @@ const deviceStatusChart = new Chart(donutCtx, {
 
 // ── Latency Trend Chart ──────────────────────────────────────
 const latCtx = document.getElementById("latencyTrendChart").getContext("2d");
-const latencyTrendChart = new Chart(latCtx, {
+const latencyTrendChart = window.latencyTrendChart = new Chart(latCtx, {
   type: "line",
   data: {
     labels: [],

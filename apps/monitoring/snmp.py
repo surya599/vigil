@@ -472,6 +472,7 @@ class SNMPMonitoringEngine:
         - Generates/resolves INTERFACE_DOWN and SNMP_FAILURE alerts
         """
         from alerts.models import Alert
+        from monitoring.broadcaster import broadcast_alert_event, broadcast_snmp_update
         from monitoring.models import InterfaceMetric, NetworkInterface
 
         now = timezone.now()
@@ -487,21 +488,24 @@ class SNMPMonitoringEngine:
                 is_resolved=False,
             ).first()
             if not active_alert:
-                Alert.objects.create(
+                new_alert = Alert.objects.create(
                     device=device,
                     alert_type=Alert.AlertType.SNMP_FAILURE,
                     severity=Alert.Severity.WARNING,
                     description=f"SNMP collection failed for '{device.name}' ({device.ip_address}): {data.error_message}",
                     created_at=now,
                 )
+                broadcast_alert_event(new_alert, event="created")
+            broadcast_snmp_update(device, data, total_in_bps=0.0, total_out_bps=0.0)
             return data
 
         # SNMP Succeeded: Auto-resolve any active SNMP_FAILURE alert
-        Alert.objects.filter(
+        for alert in Alert.objects.filter(
             device=device,
             alert_type=Alert.AlertType.SNMP_FAILURE,
             is_resolved=False,
-        ).update(is_resolved=True, resolved_at=now)
+        ):
+            alert.resolve()
 
         # 2. Update Device System Attributes
         update_fields = []
@@ -515,6 +519,9 @@ class SNMPMonitoringEngine:
             device.save(update_fields=update_fields)
 
         # 3. Synchronize Interfaces & Metrics
+        device_total_in_bps = 0.0
+        device_total_out_bps = 0.0
+
         for iface_data in data.interfaces:
             # Find or create NetworkInterface
             iface, _ = NetworkInterface.objects.get_or_create(
@@ -537,7 +544,7 @@ class SNMPMonitoringEngine:
             if old_oper == "up" and new_oper == "down":
                 # Interface went DOWN: create Critical Alert
                 logger.warning("Interface '%s' on '%s' changed to DOWN", iface.interface_name, device.name)
-                Alert.objects.create(
+                new_alert = Alert.objects.create(
                     device=device,
                     alert_type=Alert.AlertType.INTERFACE_DOWN,
                     severity=Alert.Severity.CRITICAL,
@@ -547,14 +554,16 @@ class SNMPMonitoringEngine:
                     ),
                     created_at=now,
                 )
+                broadcast_alert_event(new_alert, event="created")
             elif new_oper == "up" and old_oper != "up":
                 # Interface recovered: resolve any active INTERFACE_DOWN alerts
-                Alert.objects.filter(
+                for alert in Alert.objects.filter(
                     device=device,
                     alert_type=Alert.AlertType.INTERFACE_DOWN,
                     is_resolved=False,
                     description__icontains=f"'{iface.interface_name}'",
-                ).update(is_resolved=True, resolved_at=now)
+                ):
+                    alert.resolve()
 
             # Update interface properties
             iface.interface_index = iface_data.index
@@ -580,6 +589,9 @@ class SNMPMonitoringEngine:
                 delta_t_seconds=delta_t,
             )
 
+            device_total_in_bps += in_bps
+            device_total_out_bps += out_bps
+
             # Record InterfaceMetric
             InterfaceMetric.objects.create(
                 interface=iface,
@@ -590,6 +602,12 @@ class SNMPMonitoringEngine:
                 recorded_at=now,
             )
 
+        broadcast_snmp_update(
+            device,
+            data,
+            total_in_bps=device_total_in_bps,
+            total_out_bps=device_total_out_bps,
+        )
         return data
 
     def poll_all_snmp_devices(

@@ -95,17 +95,21 @@ class Alert(models.Model):
         return f"[{self.severity.upper()}] {self.device.name} - {self.get_alert_type_display()} ({'Resolved' if self.is_resolved else 'Active'})"
 
     def acknowledge(self, user):
-        """Marks the alert as acknowledged by a specified user."""
+        """Marks the alert as acknowledged by a specified user and broadcasts to NOC."""
         self.is_acknowledged = True
         self.acknowledged_by = user
         self.acknowledged_at = timezone.now()
         self.save(update_fields=["is_acknowledged", "acknowledged_by", "acknowledged_at"])
+        from monitoring.broadcaster import broadcast_alert_event
+        broadcast_alert_event(self, event="acknowledged")
 
     def resolve(self):
         """Marks the alert as resolved when device or interface metrics return to normal."""
         self.is_resolved = True
         self.resolved_at = timezone.now()
         self.save(update_fields=["is_resolved", "resolved_at"])
+        from monitoring.broadcaster import broadcast_alert_event
+        broadcast_alert_event(self, event="resolved")
 
 
 class AlertThreshold(models.Model):

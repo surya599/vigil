@@ -301,6 +301,10 @@ class ICMPMonitoringEngine:
         # Alert Generation & Self-Healing Logic
         self._evaluate_alerts(device, result, new_status, threshold, now)
 
+        # Broadcast real-time device status & telemetry to WebSocket subscribers
+        from monitoring.broadcaster import broadcast_device_metric
+        broadcast_device_metric(device, metric, old_status=old_status)
+
         return metric
 
     def _evaluate_alerts(self, device, result: ICMPResult, new_status: str, threshold, now):
@@ -310,6 +314,7 @@ class ICMPMonitoringEngine:
         active offline alerts when device recovers.
         """
         from alerts.models import Alert
+        from monitoring.broadcaster import broadcast_alert_event
 
         # 1. Device Offline Alert
         if new_status == "offline":
@@ -321,7 +326,7 @@ class ICMPMonitoringEngine:
             ).first()
 
             if not active_offline:
-                Alert.objects.create(
+                new_alert = Alert.objects.create(
                     device=device,
                     alert_type=Alert.AlertType.DEVICE_OFFLINE,
                     severity=Alert.Severity.CRITICAL,
@@ -331,6 +336,7 @@ class ICMPMonitoringEngine:
                     ),
                     created_at=now,
                 )
+                broadcast_alert_event(new_alert, event="created")
                 logger.warning("Triggered CRITICAL DEVICE_OFFLINE alert for '%s'", device.name)
         elif new_status == "online":
             # Auto-resolve any active DEVICE_OFFLINE alerts (Self-healing)
@@ -357,7 +363,7 @@ class ICMPMonitoringEngine:
             ).first()
 
             if not active_latency:
-                Alert.objects.create(
+                new_alert = Alert.objects.create(
                     device=device,
                     alert_type=Alert.AlertType.HIGH_LATENCY,
                     severity=severity,
@@ -367,13 +373,15 @@ class ICMPMonitoringEngine:
                     ),
                     created_at=now,
                 )
+                broadcast_alert_event(new_alert, event="created")
         elif result.avg_latency is not None and result.avg_latency < threshold.high_latency_warning_ms:
             # Auto-resolve high latency alerts
-            Alert.objects.filter(
+            for alert in Alert.objects.filter(
                 device=device,
                 alert_type=Alert.AlertType.HIGH_LATENCY,
                 is_resolved=False,
-            ).update(is_resolved=True, resolved_at=now)
+            ):
+                alert.resolve()
 
         # 3. Packet Loss Alert
         if result.packet_loss >= threshold.packet_loss_warning_pct and result.packet_loss < 100.0:
@@ -389,7 +397,7 @@ class ICMPMonitoringEngine:
             ).first()
 
             if not active_loss:
-                Alert.objects.create(
+                new_alert = Alert.objects.create(
                     device=device,
                     alert_type=Alert.AlertType.PACKET_LOSS,
                     severity=severity,
@@ -399,12 +407,14 @@ class ICMPMonitoringEngine:
                     ),
                     created_at=now,
                 )
+                broadcast_alert_event(new_alert, event="created")
         elif result.packet_loss < threshold.packet_loss_warning_pct:
-            Alert.objects.filter(
+            for alert in Alert.objects.filter(
                 device=device,
                 alert_type=Alert.AlertType.PACKET_LOSS,
                 is_resolved=False,
-            ).update(is_resolved=True, resolved_at=now)
+            ):
+                alert.resolve()
 
     def check_all_devices(
         self,

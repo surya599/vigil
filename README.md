@@ -111,8 +111,8 @@ NetPulse/
 | **Phase 5** | **ICMP monitoring engine (ping, latency, packet loss calculation)** | **COMPLETED** |
 | **Phase 6** | **SNMP telemetry collection (SNMPv2c/SNMPv3, interface counters, bandwidth)** | **COMPLETED** |
 | **Phase 7** | **Celery background monitoring engine & Celery Beat scheduling** | **COMPLETED** |
-| Phase 8 | Django Channels & WebSocket real-time broadcast engine | *Upcoming / Next* |
-| Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming* |
+| **Phase 8** | **Django Channels & WebSocket real-time broadcast engine** | **COMPLETED** |
+| Phase 9 | Traffic analytics, Chart.js metrics & historical performance | *Upcoming / Next* |
 | Phase 10 | Incident alert generation & acknowledgement workflow | *Upcoming* |
 | Phase 11 | Interactive network topology graph visualization | *Upcoming* |
 | Phase 12 | Comprehensive test suite, security hardening & deployment guide | *Upcoming* |
@@ -122,10 +122,29 @@ NetPulse/
 ## Verification & Execution Guide
 
 ### Automated Testing
-Execute the complete test suite (144 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, and Celery Background Tasks & Beat Schedules):
+Execute the complete test suite (161 automated tests covering Models, Permissions, Auth, CRUD, Views, Chart APIs, Navigation, ICMP Engine, SNMP Engine, Celery Background Tasks, and Django Channels WebSockets):
 ```powershell
 .\.venv\Scripts\pytest.exe -v
 ```
+
+### Manual Verification for Phase 8 (Django Channels & WebSocket Real-Time Broadcast Engine)
+
+1. **Start the ASGI Server (Daphne integrated via `runserver`):**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py runserver
+   ```
+   *Because `daphne` is registered at the top of `INSTALLED_APPS`, `manage.py runserver` automatically runs `ASGI/Daphne` supporting both HTTP and WebSockets.*
+
+2. **Verify Live WebSocket Connection on the NOC Dashboard:**
+   - Log in and open `http://127.0.0.1:8000/dashboard/`.
+   - Observe the top-right status indicator transition to **Live WS** with a green pulse dot, and the bandwidth chart badge update to **WebSocket Live Stream**.
+   - Open browser DevTools → Network → WS tab → inspect `/ws/noc/` frames (`noc_snapshot`, `pong`, `device_status_update`, `alert_notification`, `traffic_snapshot_update`).
+
+3. **Trigger a Live Broadcast from Another Terminal:**
+   ```powershell
+   .\.venv\Scripts\python.exe manage.py run_icmp_check --count 2
+   ```
+   *Observe the NOC dashboard table and stat cards update instantaneously over WebSocket without page reload.*
 
 ### Manual Verification for Phase 7 (Celery Background Tasks & Beat Scheduling)
 
