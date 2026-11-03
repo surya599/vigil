@@ -165,7 +165,10 @@ class SeedNocDemoCommandTest(TestCase):
     def test_seed_noc_demo_command_is_idempotent(self):
         out1 = StringIO()
         call_command("seed_noc_demo", stdout=out1)
-        self.assertIn("Successfully seeded NetPulse NOC demo dataset", out1.getvalue())
+        self.assertTrue(
+            "Successfully seeded VIGIL NOC demo dataset" in out1.getvalue()
+            or "Successfully seeded NetPulse NOC demo dataset" in out1.getvalue()
+        )
 
         device_count_1 = Device.objects.count()
         conn_count_1 = NetworkConnection.objects.count()

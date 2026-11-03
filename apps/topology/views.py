@@ -63,6 +63,8 @@ class TopologyView(LoginRequiredMixin, TemplateView):
         ctx["total_edges"] = summary["total_edges"]
         ctx["manual_links"] = summary["manual_links"]
         ctx["discovered_links"] = summary["discovered_links"]
+        ctx["confirmed_links"] = summary.get("confirmed_links", 0)
+        ctx["inferred_links"] = summary.get("inferred_links", 0)
         ctx["active_edges"] = summary["active_edges"]
         ctx["down_edges"] = summary["down_edges"]
         ctx["isolated_nodes"] = summary["isolated_nodes"]

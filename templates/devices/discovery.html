@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% block title %}Network Discovery – VIGIL | Network Intelligence Platform{% endblock %}
+{% block page_title %}Automatic Network Discovery &amp; Inventory Intelligence{% endblock %}
+{% block nav_discovery %}active{% endblock %}
+
+{% block content %}
+<!-- ── Top Inventory Summary Cards ────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(56,189,248,.12);">
+        <i data-lucide="radar" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" id="disc-total-count">{{ total_discovered }}</div>
+      <div class="stat-label">Discovered Hosts</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="wifi" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-online);">{{ reachable_discovered }}</div>
+      <div class="stat-label">Reachable Now</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(210,153,34,.12);">
+        <i data-lucide="help-circle" style="color:var(--noc-warning);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-warning);">{{ unknown_count }}</div>
+      <div class="stat-label">Unknown Devices</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(63,185,80,.12);">
+        <i data-lucide="shield-check" style="color:var(--noc-online);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value">{{ trusted_count }}</div>
+      <div class="stat-label">Trusted Inventory</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(56,189,248,.12);">
+        <i data-lucide="activity" style="color:var(--noc-accent);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-accent);">{{ monitored_linked_count }}</div>
+      <div class="stat-label">Monitored Linked</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-xl-2">
+    <div class="stat-card">
+      <div class="stat-icon mb-2" style="background:rgba(248,81,73,.12);">
+        <i data-lucide="shield-alert" style="color:var(--noc-offline);width:20px;height:20px;"></i>
+      </div>
+      <div class="stat-value" style="color:var(--noc-offline);">{{ untrusted_count }}</div>
+      <div class="stat-label">Untrusted Flagged</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Network Interface Detector & Scan Control Panel ────────────────── -->
+<div class="noc-card mb-4">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span><i data-lucide="compass" style="width:15px;height:15px;"></i> Automatic Network Interface Detection &amp; Subnet Scanner</span>
+    <span class="badge rounded-pill px-2 py-1" style="background:rgba(56,189,248,.1);color:var(--noc-accent);border:1px solid rgba(56,189,248,.25);font-size:.7rem;">
+      Authorized RFC1918 Private Scope Enforced
+    </span>
+  </div>
+  <div class="p-3">
+    <form method="post" id="discovery-scan-form" class="row g-3 align-items-end">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="start_scan" />
+
+      <div class="col-md-4">
+        <label class="form-label">Select Host Network Interface</label>
+        <select name="interface_name" id="interface-selector" class="form-select form-select-sm">
+          {% for iface in detected_interfaces %}
+          <option value="{{ iface.name }}"
+                  data-ip="{{ iface.ipv4_address }}"
+                  data-mask="{{ iface.subnet_mask }}"
+                  data-gw="{{ iface.default_gateway|default:'N/A' }}"
+                  data-cidr="{{ iface.network_cidr }}"
+                  data-mac="{{ iface.mac_address|default:'N/A' }}"
+                  data-hosts="{{ iface.usable_hosts_count }}"
+                  {% if iface.is_primary %}selected{% endif %}>
+            {{ iface.name }} — {{ iface.ipv4_address }} ({{ iface.network_cidr }}){% if iface.is_primary %} [Primary]{% endif %}
+          </option>
+          {% empty %}
+          <option value="eth0" data-ip="127.0.0.1" data-mask="255.255.255.0" data-gw="N/A" data-cidr="192.168.1.0/24">
+            Manual Subnet Entry
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Target Authorized Subnet (CIDR)</label>
+        <input type="text" name="target_cidr" id="target-cidr-input"
+               class="form-control form-control-sm"
+               value="{{ default_cidr }}"
+               placeholder="e.g. 10.0.114.0/24 or 192.168.1.0/24" required />
+      </div>
+
+      <div class="col-md-4 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill" id="btn-start-scan">
+          <i data-lucide="play" style="width:14px;height:14px;"></i> Start Scan
+        </button>
+        {% if latest_scan and latest_scan.status == 'running' %}
+        <button type="button" class="btn btn-sm btn-outline-danger" id="btn-stop-scan" data-scan-id="{{ latest_scan.id }}">
+          <i data-lucide="square" style="width:14px;height:14px;"></i> Stop Scan
+        </button>
+        {% endif %}
+      </div>
+    </form>
+
+    <!-- Detected Local Network Parameters Banner -->
+    {% if primary_interface %}
+    <div class="row g-2 mt-3 pt-3" style="border-top:1px solid var(--noc-border);font-size:.78rem;">
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">Local IPv4</span>
+        <code id="info-local-ip" style="color:var(--noc-accent);">{{ primary_interface.ipv4_address }}</code>
+      </div>
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">Subnet Mask</span>
+        <span id="info-subnet-mask" class="fw-semibold">{{ primary_interface.subnet_mask }}</span>
+      </div>
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">Default Gateway</span>
+        <code id="info-gateway" style="color:var(--noc-online);">{{ primary_interface.default_gateway|default:"N/A" }}</code>
+      </div>
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">Network CIDR</span>
+        <code id="info-cidr" style="color:var(--noc-text);">{{ primary_interface.network_cidr }}</code>
+      </div>
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">MAC Address</span>
+        <span id="info-mac" class="text-muted">{{ primary_interface.mac_address|default:"N/A" }}</span>
+      </div>
+      <div class="col-6 col-md-2">
+        <span class="text-muted d-block">Usable Range</span>
+        <span id="info-hosts" class="text-muted">{{ primary_interface.usable_hosts_count }} hosts</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Latest Scan Status & Progress Bar -->
+    {% if latest_scan %}
+    <div class="mt-3 p-2 rounded" style="background:rgba(255,255,255,.02);border:1px solid var(--noc-border);" id="scan-progress-panel">
+      <div class="d-flex flex-wrap justify-content-between align-items-center mb-1" style="font-size:.76rem;">
+        <div>
+          <strong>Last Scan:</strong> <code>{{ latest_scan.target_cidr }}</code>
+          <span class="badge ms-1 {% if latest_scan.status == 'completed' %}badge-online{% elif latest_scan.status == 'running' %}badge-warning{% else %}badge-offline{% endif %}">
+            {{ latest_scan.get_status_display }}
+          </span>
+        </div>
+        <div class="text-muted">
+          Discovered: <strong>{{ latest_scan.discovered_count }}</strong> &nbsp;|&nbsp;
+          New: <strong>{{ latest_scan.new_devices_count }}</strong> &nbsp;|&nbsp;
+          Changes: <strong>{{ latest_scan.changes_detected_count }}</strong> &nbsp;|&nbsp;
+          Duration: <strong>{{ latest_scan.duration_seconds }}s</strong>
+        </div>
+      </div>
+      <div class="progress" style="height:6px;background:var(--noc-bg);">
+        <div class="progress-bar bg-info" role="progressbar" style="width: {{ latest_scan.progress_pct }}%;"></div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Filter Bar & Discovered Devices Inventory Table ────────────────── -->
+<div class="noc-card mb-4">
+  <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <span><i data-lucide="cpu" style="width:15px;height:15px;"></i> Discovered Network Inventory (Separate from Monitored Devices)</span>
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center m-0">
+      <input type="text" name="q" value="{{ search_query }}" class="form-control form-control-sm"
+             placeholder="Search IP, MAC, Hostname, Vendor..." style="width:210px;" />
+      <select name="device_type" class="form-select form-select-sm" style="width:140px;">
+        <option value="">All Types</option>
+        {% for val, label in device_type_choices %}
+        <option value="{{ val }}" {% if current_type == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select name="trust_status" class="form-select form-select-sm" style="width:135px;">
+        <option value="">All Trust States</option>
+        {% for val, label in trust_choices %}
+        <option value="{{ val }}" {% if current_trust == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select name="reachability" class="form-select form-select-sm" style="width:130px;">
+        <option value="">Reachability</option>
+        <option value="reachable" {% if current_reachability == 'reachable' %}selected{% endif %}>Reachable</option>
+        <option value="unreachable" {% if current_reachability == 'unreachable' %}selected{% endif %}>Disappeared</option>
+      </select>
+      <select name="sort" class="form-select form-select-sm" style="width:150px;">
+        <option value="-last_discovered_at" {% if current_sort == '-last_discovered_at' %}selected{% endif %}>Newest Seen</option>
+        <option value="ip_address" {% if current_sort == 'ip_address' %}selected{% endif %}>IP Address ↑</option>
+        <option value="hostname" {% if current_sort == 'hostname' %}selected{% endif %}>Hostname A-Z</option>
+        <option value="device_type" {% if current_sort == 'device_type' %}selected{% endif %}>Device Type</option>
+        <option value="-confidence_score" {% if current_sort == '-confidence_score' %}selected{% endif %}>Confidence ↓</option>
+      </select>
+      <button type="submit" class="btn btn-sm btn-outline-info">Filter</button>
+    </form>
+  </div>
+
+  <form method="post" id="bulk-register-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="register_selected" />
+    <div class="p-2 d-flex justify-content-between align-items-center" style="border-bottom:1px solid var(--noc-border);background:rgba(255,255,255,.015);">
+      <div class="form-check ms-2">
+        <input type="checkbox" class="form-check-input" id="select-all-discovered" />
+        <label class="form-check-label text-muted" for="select-all-discovered" style="font-size:.76rem;">
+          Select All Visible Hosts
+        </label>
+      </div>
+      <button type="submit" class="btn btn-sm btn-noc-primary" style="font-size:.76rem;">
+        <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> Add Selected Devices to Monitoring
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-dark table-hover mb-0" style="font-size:.81rem;">
+        <thead>
+          <tr>
+            <th style="width:32px;"></th>
+            <th>IP Address</th>
+            <th>MAC Address</th>
+            <th>Hostname</th>
+            <th>Manufacturer</th>
+            <th>Device Type</th>
+            <th>Discovery Method</th>
+            <th>Reachability</th>
+            <th>Confidence</th>
+            <th>Trust / State</th>
+            <th>Last Seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for dev in discovered_devices %}
+          <tr>
+            <td>
+              <input type="checkbox" name="discovered_ids" value="{{ dev.id }}" class="form-check-input disc-row-check" />
+            </td>
+            <td><code style="color:var(--noc-accent);">{{ dev.ip_address }}</code></td>
+            <td><code class="text-muted" style="font-size:.74rem;">{{ dev.mac_address|default:"—" }}</code></td>
+            <td class="fw-semibold">{{ dev.hostname|default:"—" }}</td>
+            <td style="color:var(--noc-muted);">{{ dev.manufacturer|default:"Unknown Vendor" }}</td>
+            <td>
+              <span class="badge bg-dark border border-secondary">{{ dev.get_device_type_display }}</span>
+            </td>
+            <td>
+              <span class="text-uppercase" style="font-size:.7rem;color:var(--noc-accent);">{{ dev.discovery_methods }}</span>
+            </td>
+            <td>
+              {% if dev.is_reachable %}
+                <span class="badge rounded-pill badge-online" style="font-size:.68rem;">
+                  ● Reachable {% if dev.latency_ms %}({{ dev.latency_ms|floatformat:1 }}ms){% endif %}
+                </span>
+              {% else %}
+                <span class="badge rounded-pill badge-offline" style="font-size:.68rem;">● Disappeared</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge rounded-pill {% if dev.confidence_score >= 80 %}badge-online{% elif dev.confidence_score >= 50 %}badge-warning{% else %}badge-unknown{% endif %}"
+                    title="{{ dev.classification_reason }}" style="font-size:.68rem;">
+                {{ dev.confidence_label }} ({{ dev.confidence_score }}%)
+              </span>
+            </td>
+            <td>
+              {% if dev.is_monitored and dev.monitored_device %}
+                <a href="{% url 'devices:device-detail' dev.monitored_device.pk %}" class="badge rounded-pill badge-online text-decoration-none">
+                  ✓ Monitored
+                </a>
+              {% elif dev.trust_status == 'trusted' %}
+                <span class="badge rounded-pill badge-online">Trusted</span>
+              {% elif dev.trust_status == 'untrusted' %}
+                <span class="badge rounded-pill badge-offline">Untrusted</span>
+              {% elif dev.trust_status == 'ignored' %}
+                <span class="badge rounded-pill badge-unknown">Ignored</span>
+              {% else %}
+                <span class="badge rounded-pill badge-warning">Unknown</span>
+              {% endif %}
+            </td>
+            <td class="text-muted" style="font-size:.73rem;">{{ dev.last_discovered_at|timesince }} ago</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="11" class="text-center py-4 text-muted">
+              No discovered hosts match the current filter. Select a network interface and click <strong>Start Scan</strong> above.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+</div>
+
+<!-- ── Bottom Grid: Unknown Devices Review & Automatic Network Change Log ── -->
+<div class="row g-4">
+  <!-- Unknown Devices Triage Panel (Part 4) -->
+  <div class="col-lg-6">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="shield-question" style="width:15px;height:15px;"></i> Unknown Devices Review Queue</span>
+        <span class="badge bg-warning text-dark">{{ unknown_count }} Pending Review</span>
+      </div>
+      <div class="p-3">
+        {% for udev in unknown_devices %}
+        <div class="d-flex flex-wrap justify-content-between align-items-center p-2 mb-2 rounded"
+             style="background:rgba(255,255,255,.025);border:1px solid var(--noc-border);">
+          <div>
+            <code style="color:var(--noc-accent);">{{ udev.ip_address }}</code>
+            <strong class="ms-1" style="font-size:.82rem;">{{ udev.hostname|default:"Unidentified Host" }}</strong>
+            <div class="text-muted" style="font-size:.72rem;">
+              MAC: {{ udev.mac_address|default:"N/A" }} &nbsp;|&nbsp;
+              Vendor: {{ udev.manufacturer|default:"Unverified" }} &nbsp;|&nbsp;
+              Type: {{ udev.get_device_type_display }}
+            </div>
+          </div>
+          <form method="post" class="d-flex gap-1 mt-2 mt-sm-0">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update_device" />
+            <input type="hidden" name="discovered_id" value="{{ udev.id }}" />
+            <button type="submit" name="trust_status" value="monitored" class="btn btn-xs btn-outline-info" style="font-size:.68rem;padding:.15rem .45rem;">Monitor</button>
+            <button type="submit" name="trust_status" value="trusted" class="btn btn-xs btn-outline-success" style="font-size:.68rem;padding:.15rem .45rem;">Trusted</button>
+            <button type="submit" name="trust_status" value="untrusted" class="btn btn-xs btn-outline-danger" style="font-size:.68rem;padding:.15rem .45rem;">Untrusted</button>
+            <button type="submit" name="trust_status" value="ignored" class="btn btn-xs btn-outline-secondary" style="font-size:.68rem;padding:.15rem .45rem;">Ignore</button>
+          </form>
+        </div>
+        {% empty %}
+        <div class="text-center py-4 text-muted" style="font-size:.82rem;">
+          All discovered devices have been reviewed and classified.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Network Inventory Change Events Log (Part 4) -->
+  <div class="col-lg-6">
+    <div class="noc-card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="git-commit" style="width:15px;height:15px;"></i> Automatic Network Change Detection Log</span>
+        <span class="text-muted" style="font-size:.7rem;">New, Disappeared, IP/MAC/Hostname Changes</span>
+      </div>
+      <div class="p-3" style="max-height:380px;overflow-y:auto;">
+        {% for ev in recent_changes %}
+        <div class="p-2 mb-2 rounded alert-{{ ev.severity }}" style="background:rgba(255,255,255,.02);font-size:.78rem;">
+          <div class="d-flex justify-content-between align-items-center">
+            <strong>{{ ev.get_event_type_display }}</strong>
+            <small class="text-muted">{{ ev.created_at|timesince }} ago</small>
+          </div>
+          <div class="text-muted mt-1">{{ ev.description }}</div>
+        </div>
+        {% empty %}
+        <div class="text-center py-4 text-muted" style="font-size:.82rem;">
+          No network inventory changes recorded yet.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Update CIDR and local interface summary when interface selector changes
+  const ifaceSelector = document.getElementById("interface-selector");
+  const cidrInput = document.getElementById("target-cidr-input");
+  if (ifaceSelector) {
+    ifaceSelector.addEventListener("change", function () {
+      const opt = ifaceSelector.options[ifaceSelector.selectedIndex];
+      if (!opt) return;
+      if (cidrInput && opt.dataset.cidr) cidrInput.value = opt.dataset.cidr;
+      const setEl = (id, val) => { const el = document.getElementById(id); if (el && val) el.textContent = val; };
+      setEl("info-local-ip", opt.dataset.ip);
+      setEl("info-subnet-mask", opt.dataset.mask);
+      setEl("info-gateway", opt.dataset.gw);
+      setEl("info-cidr", opt.dataset.cidr);
+      setEl("info-mac", opt.dataset.mac);
+      setEl("info-hosts", (opt.dataset.hosts || "0") + " hosts");
+    });
+  }
+
+  // Select All Checkbox handler
+  const selectAllBox = document.getElementById("select-all-discovered");
+  if (selectAllBox) {
+    selectAllBox.addEventListener("change", function () {
+      document.querySelectorAll(".disc-row-check").forEach(cb => {
+        cb.checked = selectAllBox.checked;
+      });
+    });
+  }
+</script>
+{% endblock %}

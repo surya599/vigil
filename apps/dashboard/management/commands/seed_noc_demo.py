@@ -14,7 +14,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from devices.models import Device
+from devices.models import Device, DiscoveryScan, DiscoveredDevice, NetworkChangeEvent
 from monitoring.models import DeviceMetric, NetworkInterface, InterfaceMetric
 from analytics.models import NetworkTrafficSnapshot, DeviceDailySummary
 from alerts.models import Alert, AlertThreshold
@@ -325,13 +325,75 @@ class Command(BaseCommand):
                     "link_speed": link_speed,
                     "status": link_status,
                     "is_discovered": True,
+                    "discovery_method": NetworkConnection.DiscoveryMethod.LLDP if conn_type == NetworkConnection.ConnectionType.FIBER else NetworkConnection.DiscoveryMethod.SUBNET_INFERRED,
+                    "is_confirmed": conn_type == NetworkConnection.ConnectionType.FIBER,
                 },
             )
 
+        # 6. Seed VIGIL Discovery Scan, Discovered Inventory & Change Events
+        scan, _ = DiscoveryScan.objects.get_or_create(
+            target_cidr="10.100.0.0/24",
+            status=DiscoveryScan.Status.COMPLETED,
+            defaults={
+                "interface_name": "Ethernet0",
+                "started_by": admin_user,
+                "started_at": now - timedelta(minutes=20),
+                "completed_at": now - timedelta(minutes=19),
+                "duration_seconds": 12.4,
+                "progress_pct": 100,
+                "total_hosts_scanned": 254,
+                "discovered_count": 9,
+                "new_devices_count": 2,
+            },
+        )
+
+        disc_unmonitored, _ = DiscoveredDevice.objects.update_or_create(
+            ip_address="10.100.4.88",
+            defaults={
+                "mac_address": "30:05:5C:10:20:30",
+                "hostname": "hp-laserjet-fl2.corp.local",
+                "manufacturer": "Brother Industries",
+                "device_type": Device.DeviceType.PRINTER,
+                "discovery_methods": "arp,icmp,dns,port",
+                "is_reachable": True,
+                "confidence_score": 88,
+                "open_ports": "80,443,631,9100",
+                "trust_status": DiscoveredDevice.TrustStatus.TRUSTED,
+                "last_scan": scan,
+            },
+        )
+
+        disc_unknown, _ = DiscoveredDevice.objects.update_or_create(
+            ip_address="10.100.4.199",
+            defaults={
+                "mac_address": "DE:AD:BE:EF:11:22",
+                "hostname": "",
+                "manufacturer": "",
+                "device_type": Device.DeviceType.UNKNOWN,
+                "discovery_methods": "arp",
+                "is_reachable": True,
+                "confidence_score": 20,
+                "open_ports": "",
+                "trust_status": DiscoveredDevice.TrustStatus.UNKNOWN,
+                "last_scan": scan,
+            },
+        )
+
+        NetworkChangeEvent.objects.get_or_create(
+            discovered_device=disc_unknown,
+            event_type=NetworkChangeEvent.EventType.NEW_DEVICE,
+            defaults={
+                "severity": NetworkChangeEvent.Severity.INFO,
+                "previous_value": "",
+                "new_value": "10.100.4.199",
+                "description": "Newly discovered unknown device at 10.100.4.199 via ARP scan.",
+            },
+        )
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"Successfully seeded NetPulse NOC demo dataset: "
-                f"{len(devices_by_name)} devices, {NetworkConnection.objects.count()} topology links, "
-                f"and {Alert.objects.count()} incident alerts."
+                f"Successfully seeded VIGIL NOC demo dataset: "
+                f"{len(devices_by_name)} monitored devices, {DiscoveredDevice.objects.count()} discovered devices, "
+                f"{NetworkConnection.objects.count()} topology links, and {Alert.objects.count()} incident alerts."
             )
         )

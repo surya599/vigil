@@ -1,3 +1,4 @@
+from typing import Optional
 from django.db import models
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from django.utils import timezone
@@ -22,6 +23,12 @@ class Device(models.Model):
         FIREWALL = "firewall", "Firewall"
         ACCESS_POINT = "access_point", "Access Point"
         WORKSTATION = "workstation", "Workstation"
+        LAPTOP = "laptop", "Laptop"
+        DESKTOP = "desktop", "Desktop"
+        MOBILE = "mobile", "Mobile Phone"
+        PRINTER = "printer", "Printer"
+        APPLIANCE = "appliance", "Network Appliance"
+        UNKNOWN = "unknown", "Unknown Device"
         OTHER = "other", "Other"
 
     class Status(models.TextChoices):
@@ -175,7 +182,22 @@ class Device(models.Model):
         help_text="SNMPv3 privacy passphrase",
     )
 
-    # SNMP Cache / Cached System Metadata
+    # SNMP Cache / Cached System Metadata & Resource Telemetry
+    hostname = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="Resolved DNS or SNMP sysName hostname",
+    )
+    manufacturer = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Hardware vendor identified via IEEE MAC OUI or SNMP",
+    )
+    sys_object_id = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="SNMP sysObjectID (OID 1.3.6.1.2.1.1.2.0)",
+    )
     sys_description = models.TextField(
         blank=True,
         help_text="System description string fetched via SNMP (OID 1.3.6.1.2.1.1.1.0)",
@@ -184,6 +206,16 @@ class Device(models.Model):
         max_length=100,
         blank=True,
         help_text="System uptime fetched via SNMP (OID 1.3.6.1.2.1.1.3.0)",
+    )
+    cpu_utilization = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Latest SNMP CPU utilization percentage (0.0 to 100.0)",
+    )
+    memory_utilization = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Latest SNMP Memory utilization percentage (0.0 to 100.0)",
     )
 
     # Audit Timestamps
@@ -227,3 +259,259 @@ class Device(models.Model):
             self.last_status_change = timezone.now()
         self.last_checked = timezone.now()
         self.save(update_fields=["status", "last_status_change", "last_checked", "consecutive_failures"])
+
+
+class DiscoveryScan(models.Model):
+    """
+    Tracks an automatic or on-demand VIGIL network discovery scan session.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        STOPPED = "stopped", "Stopped"
+        FAILED = "failed", "Failed"
+
+    interface_name = models.CharField(max_length=100, blank=True)
+    target_cidr = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    progress_pct = models.PositiveSmallIntegerField(default=0)
+    total_hosts_scanned = models.PositiveIntegerField(default=0)
+    discovered_count = models.PositiveIntegerField(default=0)
+    new_devices_count = models.PositiveIntegerField(default=0)
+    changes_detected_count = models.PositiveIntegerField(default=0)
+    scan_methods = models.CharField(max_length=120, default="arp,icmp,dns,port")
+    started_by = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="discovery_scans",
+    )
+    started_at = models.DateTimeField(default=timezone.now, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.FloatField(default=0.0)
+    error_message = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Discovery Scan"
+        verbose_name_plural = "Discovery Scans"
+        ordering = ["-started_at"]
+
+    def __str__(self):
+        return f"Scan {self.target_cidr} ({self.get_status_display()}) - {self.discovered_count} hosts"
+
+
+class DiscoveredDevice(models.Model):
+    """
+    Represents a network asset discovered by VIGIL's automatic discovery engine.
+    Kept separate from monitored `Device` records until explicitly registered by an operator,
+    while tracking inventory history, confidence scores, and trust status.
+    """
+
+    class TrustStatus(models.TextChoices):
+        UNKNOWN = "unknown", "Unknown"
+        TRUSTED = "trusted", "Trusted"
+        UNTRUSTED = "untrusted", "Untrusted"
+        IGNORED = "ignored", "Ignored"
+        MONITORED = "monitored", "Monitored"
+
+    ip_address = models.GenericIPAddressField(
+        protocol="both",
+        unpack_ipv4=False,
+        unique=True,
+        db_index=True,
+    )
+    mac_address = models.CharField(
+        max_length=17,
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+    hostname = models.CharField(max_length=150, blank=True)
+    manufacturer = models.CharField(max_length=120, blank=True)
+    device_type = models.CharField(
+        max_length=30,
+        choices=Device.DeviceType.choices,
+        default=Device.DeviceType.UNKNOWN,
+        db_index=True,
+    )
+    type_manually_set = models.BooleanField(
+        default=False,
+        help_text="True if an operator manually overrode the device type classification",
+    )
+    confidence_score = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Identification confidence percentage (0 to 100)",
+    )
+    classification_reason = models.CharField(max_length=255, blank=True)
+    discovery_methods = models.CharField(
+        max_length=120,
+        default="arp,icmp",
+        help_text="Comma-separated discovery techniques that detected this host",
+    )
+    is_reachable = models.BooleanField(default=True, db_index=True)
+    latency_ms = models.FloatField(null=True, blank=True)
+    open_ports = models.CharField(max_length=150, blank=True)
+    sys_description = models.TextField(blank=True)
+    sys_object_id = models.CharField(max_length=150, blank=True)
+    subnet_cidr = models.CharField(max_length=64, blank=True, db_index=True)
+    interface_name = models.CharField(max_length=100, blank=True)
+
+    trust_status = models.CharField(
+        max_length=20,
+        choices=TrustStatus.choices,
+        default=TrustStatus.UNKNOWN,
+        db_index=True,
+    )
+    monitored_device = models.ForeignKey(
+        Device,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="discovered_entries",
+    )
+    last_scan = models.ForeignKey(
+        DiscoveryScan,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="devices_found",
+    )
+    first_discovered_at = models.DateTimeField(auto_now_add=True)
+    last_discovered_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Discovered Device"
+        verbose_name_plural = "Discovered Devices"
+        ordering = ["-last_discovered_at", "ip_address"]
+        indexes = [
+            models.Index(fields=["trust_status", "is_reachable"]),
+            models.Index(fields=["subnet_cidr", "is_reachable"]),
+        ]
+
+    def __str__(self):
+        return f"{self.hostname or self.ip_address} ({self.get_device_type_display()}) [{self.get_trust_status_display()}]"
+
+    @property
+    def confidence_label(self) -> str:
+        if self.confidence_score >= 80:
+            return "High"
+        if self.confidence_score >= 50:
+            return "Medium"
+        if self.confidence_score > 0:
+            return "Low"
+        return "Unverified"
+
+    @property
+    def is_monitored(self) -> bool:
+        return self.monitored_device_id is not None or self.trust_status == self.TrustStatus.MONITORED
+
+    def register_for_monitoring(self, custom_name: Optional[str] = None, location: str = "") -> Device:
+        """
+        Promotes or links this DiscoveredDevice to a monitored Device record
+        without creating duplicate IP or hostname registrations.
+        """
+        existing = Device.objects.filter(ip_address=self.ip_address).first()
+        if not existing and self.mac_address:
+            existing = Device.objects.filter(mac_address__iexact=self.mac_address).first()
+
+        if existing:
+            if self.mac_address and not existing.mac_address:
+                existing.mac_address = self.mac_address
+            if self.hostname and not existing.hostname:
+                existing.hostname = self.hostname
+            if self.manufacturer and not existing.manufacturer:
+                existing.manufacturer = self.manufacturer
+            existing.save()
+            self.monitored_device = existing
+            self.trust_status = self.TrustStatus.MONITORED
+            self.save(update_fields=["monitored_device", "trust_status"])
+            return existing
+
+        base_name = custom_name or self.hostname or f"Host-{self.ip_address.replace('.', '-')}"
+        candidate_name = base_name[:115]
+        suffix = 1
+        while Device.objects.filter(name=candidate_name).exists():
+            suffix += 1
+            candidate_name = f"{base_name[:105]}-{suffix}"
+
+        dev_type = self.device_type if self.device_type != Device.DeviceType.UNKNOWN else Device.DeviceType.OTHER
+        new_device = Device.objects.create(
+            name=candidate_name,
+            ip_address=self.ip_address,
+            mac_address=self.mac_address if self.mac_address else None,
+            device_type=dev_type,
+            hostname=self.hostname,
+            manufacturer=self.manufacturer,
+            sys_description=self.sys_description,
+            sys_object_id=self.sys_object_id,
+            location=location or (f"Subnet {self.subnet_cidr}" if self.subnet_cidr else "Discovered Network"),
+            status=Device.Status.ONLINE if self.is_reachable else Device.Status.UNKNOWN,
+            monitoring_enabled=True,
+            last_checked=timezone.now(),
+        )
+        self.monitored_device = new_device
+        self.trust_status = self.TrustStatus.MONITORED
+        self.save(update_fields=["monitored_device", "trust_status"])
+        return new_device
+
+
+class NetworkChangeEvent(models.Model):
+    """
+    Records network inventory changes detected across discovery sweeps:
+    new devices, disappeared devices, returning devices, IP changes, MAC changes,
+    hostname changes, and device classification changes.
+    """
+
+    class EventType(models.TextChoices):
+        NEW_DEVICE = "new_device", "Newly Discovered Device"
+        DEVICE_DISAPPEARED = "device_disappeared", "Device Disappeared"
+        DEVICE_RETURNED = "device_returned", "Device Returned to Network"
+        IP_CHANGED = "ip_changed", "IP Address Changed"
+        MAC_CHANGED = "mac_changed", "MAC Address Changed"
+        HOSTNAME_CHANGED = "hostname_changed", "Hostname Changed"
+        TYPE_CHANGED = "type_changed", "Device Type Changed"
+
+    class Severity(models.TextChoices):
+        INFO = "info", "Informational"
+        WARNING = "warning", "Warning"
+        CRITICAL = "critical", "Critical"
+
+    discovered_device = models.ForeignKey(
+        DiscoveredDevice,
+        on_delete=models.CASCADE,
+        related_name="change_events",
+        null=True,
+        blank=True,
+    )
+    event_type = models.CharField(
+        max_length=40,
+        choices=EventType.choices,
+        db_index=True,
+    )
+    severity = models.CharField(
+        max_length=20,
+        choices=Severity.choices,
+        default=Severity.INFO,
+        db_index=True,
+    )
+    previous_value = models.CharField(max_length=255, blank=True)
+    new_value = models.CharField(max_length=255, blank=True)
+    description = models.TextField()
+    is_acknowledged = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        verbose_name = "Network Change Event"
+        verbose_name_plural = "Network Change Events"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"[{self.get_event_type_display()}] {self.description[:80]}"

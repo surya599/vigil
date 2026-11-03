@@ -17,6 +17,8 @@ class DeviceMetricSerializer(serializers.ModelSerializer):
             "latency",
             "packet_loss",
             "jitter",
+            "cpu_utilization",
+            "memory_utilization",
             "recorded_at",
         )
 
@@ -31,6 +33,10 @@ class InterfaceMetricSerializer(serializers.ModelSerializer):
             "outgoing_bytes",
             "incoming_bps",
             "outgoing_bps",
+            "in_errors",
+            "out_errors",
+            "in_discards",
+            "out_discards",
             "recorded_at",
         )
 

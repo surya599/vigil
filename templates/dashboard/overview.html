@@ -92,6 +92,50 @@
   </div>
 </div>
 
+<!-- ── VIGIL Discovery & Infrastructure Intelligence Strip ──── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card py-2 px-3 d-flex align-items-center justify-content-between">
+      <div>
+        <div class="stat-label mt-0">Discovered Inventory</div>
+        <div class="fw-bold fs-5 text-info" id="stat-total-discovered">{{ total_discovered|default:0 }}</div>
+      </div>
+      <a href="{% url 'devices:discovery' %}" class="btn btn-sm btn-outline-info py-1 px-2" style="font-size:.7rem;">
+        Scan / View →
+      </a>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card py-2 px-3 d-flex align-items-center justify-content-between">
+      <div>
+        <div class="stat-label mt-0">Unknown Devices</div>
+        <div class="fw-bold fs-5 text-warning" id="stat-unknown-discovered">{{ unknown_discovered_count|default:0 }}</div>
+      </div>
+      <span class="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25" style="font-size:.68rem;">
+        Unverified
+      </span>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card py-2 px-3 d-flex align-items-center justify-content-between">
+      <div>
+        <div class="stat-label mt-0">Avg CPU Utilization</div>
+        <div class="fw-bold fs-5 text-light" id="stat-avg-cpu">{{ avg_cpu|default:0.0 }}%</div>
+      </div>
+      <i data-lucide="cpu" style="color:var(--noc-accent);width:18px;height:18px;"></i>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card py-2 px-3 d-flex align-items-center justify-content-between">
+      <div>
+        <div class="stat-label mt-0">Avg Memory Utilization</div>
+        <div class="fw-bold fs-5 text-light" id="stat-avg-memory">{{ avg_memory|default:0.0 }}%</div>
+      </div>
+      <i data-lucide="hard-drive" style="color:var(--noc-online);width:18px;height:18px;"></i>
+    </div>
+  </div>
+</div>
+
 <!-- ── Charts Row ────────────────────────────────────────────── -->
 <div class="row g-4 mb-4">
   <!-- Bandwidth Consumption Over Time -->
@@ -264,6 +308,61 @@
     </div>
   </div>
 </div>
+
+<!-- ── Network Change Events & Discovery Activity ───────────── -->
+<div class="row g-4 mt-1">
+  <div class="col-lg-7">
+    <div class="noc-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="radar" style="width:14px;height:14px;"></i> Recent Network Change Events</span>
+        <a href="{% url 'devices:discovery' %}" style="font-size:.75rem;color:var(--noc-accent);text-decoration:none;">
+          Discovery Console →
+        </a>
+      </div>
+      <div class="p-3" id="recent-network-events">
+        {% for ev in recent_network_events %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary border-opacity-10" style="font-size:.8rem;">
+          <div>
+            <span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 me-2" style="font-size:.65rem;">
+              {{ ev.get_event_type_display }}
+            </span>
+            <span class="text-light">{{ ev.description }}</span>
+          </div>
+          <span style="font-size:.7rem;color:var(--noc-muted);">{{ ev.created_at|timesince }} ago</span>
+        </div>
+        {% empty %}
+        <div class="text-center py-3" style="color:var(--noc-muted);font-size:.8rem;">
+          No recent network topology or inventory changes recorded.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="noc-card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i data-lucide="search" style="width:14px;height:14px;"></i> Discovery Activity</span>
+      </div>
+      <div class="p-3">
+        {% for scan in recent_scans %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary border-opacity-10" style="font-size:.8rem;">
+          <div>
+            <code style="color:var(--noc-accent);">{{ scan.target_cidr }}</code>
+            <span class="ms-2 text-secondary small">({{ scan.discovered_count }} hosts)</span>
+          </div>
+          <span class="badge rounded-pill {% if scan.status == 'completed' %}badge-online{% elif scan.status == 'running' %}badge-warning{% else %}badge-unknown{% endif %}" style="font-size:.65rem;">
+            {{ scan.status|upper }}
+          </span>
+        </div>
+        {% empty %}
+        <div class="text-center py-3" style="color:var(--noc-muted);font-size:.8rem;">
+          No subnet scans executed yet.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -421,6 +520,18 @@ async function updateDashboardData() {
       document.getElementById("stat-uptime").innerHTML = `${d.performance.global_uptime_pct}<small style="font-size:.85rem;">%</small>`;
       document.getElementById("stat-bandwidth").textContent = d.performance.total_bandwidth_display;
       document.getElementById("badge-alert-count").textContent = d.alerts.active_total;
+      if (d.devices.total_discovered !== undefined) {
+        const elDisc = document.getElementById("stat-total-discovered");
+        if (elDisc) elDisc.textContent = d.devices.total_discovered;
+        const elUnk = document.getElementById("stat-unknown-discovered");
+        if (elUnk) elUnk.textContent = d.devices.unknown_discovered;
+      }
+      if (d.performance.avg_cpu_pct !== undefined) {
+        const elCpu = document.getElementById("stat-avg-cpu");
+        if (elCpu) elCpu.textContent = d.performance.avg_cpu_pct + "%";
+        const elMem = document.getElementById("stat-avg-memory");
+        if (elMem) elMem.textContent = d.performance.avg_memory_pct + "%";
+      }
 
       // Update donut chart
       deviceStatusChart.data.datasets[0].data = [

@@ -16,12 +16,15 @@ Features:
 import asyncio
 import logging
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from django.db import close_old_connections
 from django.utils import timezone
+
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*pysnmp-lextudio.*")
 
 from pysnmp.hlapi.asyncio import (
     CommunityData,
@@ -45,8 +48,20 @@ logger = logging.getLogger("netpulse.monitoring.snmp")
 
 # Standard MIB-II OIDs
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
+OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
 OID_SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
 OID_SYS_NAME = "1.3.6.1.2.1.1.5.0"
+
+# Optional Host-Resources, UCD-SNMP & Vendor CPU/Memory OIDs
+OID_HR_PROCESSOR_LOAD = "1.3.6.1.2.1.25.3.3.1.2"
+OID_UCD_CPU_IDLE = "1.3.6.1.4.1.2021.11.11.0"
+OID_CISCO_CPU_5MIN = "1.3.6.1.4.1.9.9.109.1.1.1.1.8.1"
+OID_UCD_MEM_TOTAL = "1.3.6.1.4.1.2021.4.5.0"
+OID_UCD_MEM_AVAIL = "1.3.6.1.4.1.2021.4.6.0"
+
+# LLDP & CDP Neighbor Discovery OIDs
+OID_LLDP_REM_SYS_NAME = "1.0.8802.1.1.2.1.4.1.1.9"
+OID_CDP_CACHE_DEVICE_ID = "1.3.6.1.4.1.9.9.23.1.2.1.1.6"
 
 # Interface MIB OID prefixes
 OID_IF_INDEX = "1.3.6.1.2.1.2.2.1.1"
@@ -57,7 +72,11 @@ OID_IF_PHYS_ADDRESS = "1.3.6.1.2.1.2.2.1.6"
 OID_IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"
 OID_IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
 OID_IF_IN_OCTETS = "1.3.6.1.2.1.2.2.1.10"
+OID_IF_IN_DISCARDS = "1.3.6.1.2.1.2.2.1.13"
+OID_IF_IN_ERRORS = "1.3.6.1.2.1.2.2.1.14"
 OID_IF_OUT_OCTETS = "1.3.6.1.2.1.2.2.1.16"
+OID_IF_OUT_DISCARDS = "1.3.6.1.2.1.2.2.1.19"
+OID_IF_OUT_ERRORS = "1.3.6.1.2.1.2.2.1.20"
 
 # 64-bit High Capacity Counters (ifXTable)
 OID_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
@@ -79,15 +98,24 @@ class SNMPInterfaceData:
     speed_bps: int = 0
     in_octets: int = 0
     out_octets: int = 0
+    in_errors: int = 0
+    out_errors: int = 0
+    in_discards: int = 0
+    out_discards: int = 0
 
 
 @dataclass
 class SNMPSystemData:
-    """Aggregated system telemetry and discovered interface metrics."""
+    """Aggregated system telemetry, CPU/memory metrics, LLDP/CDP neighbors, and interface metrics."""
     sys_description: str = ""
+    sys_object_id: str = ""
     sys_name: str = ""
     sys_uptime: str = ""
     sys_uptime_ticks: int = 0
+    cpu_utilization: Optional[float] = None
+    memory_utilization: Optional[float] = None
+    lldp_neighbors: List[str] = field(default_factory=list)
+    cdp_neighbors: List[str] = field(default_factory=list)
     interfaces: List[SNMPInterfaceData] = field(default_factory=list)
     is_successful: bool = False
     error_message: Optional[str] = None
@@ -507,16 +535,37 @@ class SNMPMonitoringEngine:
         ):
             alert.resolve()
 
-        # 2. Update Device System Attributes
+        # 2.Update Device System Attributes & CPU/Memory Telemetry
         update_fields = []
         if data.sys_description:
             device.sys_description = data.sys_description
             update_fields.append("sys_description")
+        if data.sys_object_id:
+            device.sys_object_id = data.sys_object_id
+            update_fields.append("sys_object_id")
+        if data.sys_name:
+            device.hostname = data.sys_name
+            update_fields.append("hostname")
         if data.sys_uptime:
             device.sys_uptime = data.sys_uptime
             update_fields.append("sys_uptime")
+        if data.cpu_utilization is not None:
+            device.cpu_utilization = round(float(data.cpu_utilization), 1)
+            update_fields.append("cpu_utilization")
+        if data.memory_utilization is not None:
+            device.memory_utilization = round(float(data.memory_utilization), 1)
+            update_fields.append("memory_utilization")
         if update_fields:
             device.save(update_fields=update_fields)
+
+        # Evaluate CPU & Memory Resource Thresholds if present
+        if data.cpu_utilization is not None or data.memory_utilization is not None:
+            from alerts.engine import AlertEngine
+            AlertEngine.evaluate_device_resources(
+                device=device,
+                cpu_pct=data.cpu_utilization,
+                memory_pct=data.memory_utilization,
+            )
 
         # 3. Synchronize Interfaces & Metrics
         device_total_in_bps = 0.0
@@ -592,13 +641,17 @@ class SNMPMonitoringEngine:
             device_total_in_bps += in_bps
             device_total_out_bps += out_bps
 
-            # Record InterfaceMetric
+            # Record InterfaceMetric (including errors & discards)
             InterfaceMetric.objects.create(
                 interface=iface,
                 incoming_bytes=iface_data.in_octets,
                 outgoing_bytes=iface_data.out_octets,
                 incoming_bps=in_bps,
                 outgoing_bps=out_bps,
+                in_errors=getattr(iface_data, "in_errors", 0) or 0,
+                out_errors=getattr(iface_data, "out_errors", 0) or 0,
+                in_discards=getattr(iface_data, "in_discards", 0) or 0,
+                out_discards=getattr(iface_data, "out_discards", 0) or 0,
                 recorded_at=now,
             )
 

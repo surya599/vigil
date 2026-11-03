@@ -1,7 +1,9 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView, ListView
 from django.db.models import Avg, Min, Max, Count
-from rest_framework import viewsets, permissions, generics
+from rest_framework import viewsets, permissions, generics, status
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 
 from devices.models import Device
 from .models import DeviceMetric, NetworkInterface, InterfaceMetric
@@ -10,6 +12,7 @@ from .serializers import (
     NetworkInterfaceSerializer,
     InterfaceMetricSerializer,
 )
+from .utilities import NetworkUtilitiesEngine
 
 
 class PerformanceMonitoringView(LoginRequiredMixin, TemplateView):
@@ -136,3 +139,119 @@ class InterfaceMetricViewSet(viewsets.ReadOnlyModelViewSet):
         if interface_id:
             qs = qs.filter(interface_id=interface_id)
         return qs
+
+
+class NetworkUtilitiesView(LoginRequiredMixin, TemplateView):
+    """
+    VIGIL Network Utilities & SLA Uptime Report workbench.
+    Provides DNS resolution check, TCP port availability check,
+    traceroute diagnostic, and device uptime reporting.
+    """
+    template_name = "monitoring/utilities.html"
+    login_url = "accounts:login"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        rows = NetworkUtilitiesEngine.generate_uptime_report()
+        fleet_avg = (
+            round(sum(r["uptime_percentage"] for r in rows) / len(rows), 2)
+            if rows
+            else 100.0
+        )
+        ctx["uptime_report"] = {
+            "period_days": int(self.request.GET.get("days", 7) or 7),
+            "fleet_average_uptime": fleet_avg,
+            "total_monitored_devices": len(rows),
+            "devices": rows,
+        }
+        ctx["devices"] = Device.objects.order_by("name")
+        return ctx
+
+
+@api_view(["GET", "POST"])
+@permission_classes([permissions.IsAuthenticated])
+def dns_check_api(request):
+    """
+    Resolve hostname -> IP or IP -> reverse PTR hostname with latency measurement.
+    """
+    target = request.data.get("target") if request.method == "POST" else request.query_params.get("target")
+    result = NetworkUtilitiesEngine.check_dns_resolution(target or "")
+    data = result.to_dict()
+    http_status = status.HTTP_200_OK if result.is_resolved else status.HTTP_400_BAD_REQUEST
+    return Response(data, status=http_status)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def port_check_api(request):
+    """
+    Check TCP port availability on an authorized target IP or hostname.
+    """
+    host = request.data.get("host", "")
+    ports = request.data.get("ports")
+    if isinstance(ports, str):
+        parsed_ports = []
+        for token in ports.split(","):
+            token = token.strip()
+            if token.isdigit():
+                parsed_ports.append(int(token))
+        ports = parsed_ports
+    if not ports:
+        ports = [22, 80, 443, 5432, 8000]
+
+    try:
+        results = NetworkUtilitiesEngine.check_tcp_ports(host=host, ports=ports)
+        serialized = [r.to_dict() for r in results]
+        open_ports = [r.port for r in results if r.is_open]
+        return Response(
+            {
+                "host": host,
+                "total_checked": len(serialized),
+                "open_ports": open_ports,
+                "results": serialized,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def traceroute_api(request):
+    """
+    Execute an OS traceroute diagnostic to an authorized target host.
+    """
+    target = request.data.get("target", "")
+    max_hops = int(request.data.get("max_hops", 8) or 8)
+    try:
+        result = NetworkUtilitiesEngine.run_traceroute(target=target, max_hops=max_hops)
+        return Response(result, status=status.HTTP_200_OK)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def uptime_report_api(request):
+    """
+    Generate structured SLA uptime and latency report across monitored devices.
+    """
+    days_str = request.query_params.get("days", "7")
+    days = int(days_str) if str(days_str).isdigit() else 7
+    rows = NetworkUtilitiesEngine.generate_uptime_report()
+    fleet_avg = (
+        round(sum(r["uptime_percentage"] for r in rows) / len(rows), 2)
+        if rows
+        else 100.0
+    )
+    return Response(
+        {
+            "period_days": days,
+            "fleet_average_uptime": fleet_avg,
+            "total_monitored_devices": len(rows),
+            "devices": rows,
+        },
+        status=status.HTTP_200_OK,
+    )
+

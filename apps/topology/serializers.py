@@ -14,6 +14,7 @@ class NetworkConnectionSerializer(serializers.ModelSerializer):
     destination_device_status = serializers.CharField(source="destination_device.status", read_only=True)
 
     connection_type_display = serializers.CharField(source="get_connection_type_display", read_only=True)
+    discovery_method_display = serializers.CharField(source="get_discovery_method_display", read_only=True)
 
     class Meta:
         model = NetworkConnection
@@ -36,6 +37,9 @@ class NetworkConnectionSerializer(serializers.ModelSerializer):
             "link_speed",
             "status",
             "is_discovered",
+            "discovery_method",
+            "discovery_method_display",
+            "is_confirmed",
             "description",
             "created_at",
             "updated_at",

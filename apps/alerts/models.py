@@ -10,11 +10,17 @@ class Alert(models.Model):
 
     class AlertType(models.TextChoices):
         DEVICE_OFFLINE = "device_offline", "Device Offline"
+        DEVICE_RECOVERED = "device_recovered", "Device Recovered"
         HIGH_LATENCY = "high_latency", "High Latency Warning"
         PACKET_LOSS = "packet_loss", "Packet Loss Alert"
+        HIGH_CPU = "high_cpu", "High CPU Utilization"
+        HIGH_MEMORY = "high_memory", "High Memory Utilization"
         INTERFACE_DOWN = "interface_down", "Network Interface Down"
         SNMP_FAILURE = "snmp_failure", "SNMP Collection Failure"
         THRESHOLD_EXCEEDED = "threshold_exceeded", "Bandwidth Threshold Exceeded"
+        NEW_DEVICE_DISCOVERED = "new_device_discovered", "Newly Discovered Device"
+        UNKNOWN_DEVICE_DETECTED = "unknown_device_detected", "Unknown Device Detected"
+        NETWORK_CHANGE = "network_change", "Network Inventory Change"
 
     class Severity(models.TextChoices):
         CRITICAL = "critical", "Critical"  # Red
@@ -141,6 +147,26 @@ class AlertThreshold(models.Model):
     consecutive_failures_for_offline = models.PositiveIntegerField(
         default=3,
         help_text="Number of consecutive ICMP check failures before marking device Offline",
+    )
+    cpu_warning_pct = models.FloatField(
+        default=80.0,
+        help_text="CPU utilization percentage triggering a Warning alert",
+    )
+    cpu_critical_pct = models.FloatField(
+        default=95.0,
+        help_text="CPU utilization percentage triggering a Critical alert",
+    )
+    memory_warning_pct = models.FloatField(
+        default=85.0,
+        help_text="Memory utilization percentage triggering a Warning alert",
+    )
+    memory_critical_pct = models.FloatField(
+        default=95.0,
+        help_text="Memory utilization percentage triggering a Critical alert",
+    )
+    bandwidth_warning_pct = models.FloatField(
+        default=80.0,
+        help_text="Interface bandwidth utilization percentage triggering an alert",
     )
     is_active = models.BooleanField(
         default=True,

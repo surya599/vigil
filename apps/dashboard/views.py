@@ -9,7 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import permissions
 
-from devices.models import Device
+from devices.models import Device, DiscoveredDevice, DiscoveryScan, NetworkChangeEvent
 from monitoring.models import DeviceMetric, NetworkInterface, InterfaceMetric
 from alerts.models import Alert
 from analytics.models import NetworkTrafficSnapshot
@@ -80,21 +80,44 @@ class DashboardOverviewView(LoginRequiredMixin, View):
         # Recently updated devices
         recent_devices = Device.objects.order_by("-updated_at")[:10]
 
+        # Discovery & Inventory Intelligence counts
+        total_discovered = DiscoveredDevice.objects.count()
+        unknown_discovered_count = DiscoveredDevice.objects.filter(
+            trust_status=DiscoveredDevice.TrustStatus.UNKNOWN
+        ).count()
+        recent_network_events = NetworkChangeEvent.objects.select_related("discovered_device").order_by("-created_at")[:8]
+        recent_scans = DiscoveryScan.objects.order_by("-started_at")[:5]
+
+        # CPU & Memory averages across monitored devices
+        res_agg = Device.objects.filter(monitoring_enabled=True).aggregate(
+            avg_cpu=Avg("cpu_utilization"),
+            avg_mem=Avg("memory_utilization"),
+        )
+        avg_cpu = round(res_agg["avg_cpu"] or 0.0, 1)
+        avg_memory = round(res_agg["avg_mem"] or 0.0, 1)
+
         ctx = {
             "total_devices": total_devices,
+            "total_discovered": total_discovered,
+            "unknown_discovered_count": unknown_discovered_count,
             "online_devices": online_devices,
             "offline_devices": offline_devices,
             "warning_devices": warning_devices,
             "unknown_devices": unknown_devices,
             "avg_latency": round(avg_latency, 1),
             "avg_packet_loss": round(avg_packet_loss, 2),
+            "avg_cpu": avg_cpu,
+            "avg_memory": avg_memory,
             "global_uptime": round(global_uptime, 2),
             "total_bandwidth_bps": total_bw_bps,
             "total_bandwidth_display": total_bandwidth_display,
             "active_alerts_count": active_alerts.count(),
+            "critical_alerts_count": active_alerts.filter(severity=Alert.Severity.CRITICAL).count(),
             "critical_alerts": critical_alerts,
             "recent_alerts": recent_alerts,
             "recent_devices": recent_devices,
+            "recent_network_events": recent_network_events,
+            "recent_scans": recent_scans,
         }
         return render(request, self.template_name, ctx)
 
@@ -132,9 +155,23 @@ def dashboard_stats(request):
 
     active_alerts = Alert.objects.filter(is_resolved=False)
 
+    res_agg = Device.objects.filter(monitoring_enabled=True).aggregate(
+        avg_cpu=Avg("cpu_utilization"),
+        avg_mem=Avg("memory_utilization"),
+    )
+    resource_devices = list(
+        Device.objects.filter(monitoring_enabled=True)
+        .order_by("name")[:10]
+        .values("name", "cpu_utilization", "memory_utilization")
+    )
+
     return Response({
         "devices": {
             "total": Device.objects.count(),
+            "discovered_total": DiscoveredDevice.objects.count(),
+            "unknown_inventory": DiscoveredDevice.objects.filter(
+                trust_status=DiscoveredDevice.TrustStatus.UNKNOWN
+            ).count(),
             "online": Device.objects.filter(status=Device.Status.ONLINE).count(),
             "offline": Device.objects.filter(status=Device.Status.OFFLINE).count(),
             "warning": Device.objects.filter(status=Device.Status.WARNING).count(),
@@ -143,9 +180,19 @@ def dashboard_stats(request):
         "performance": {
             "avg_latency_ms": round(avg_latency, 2),
             "avg_packet_loss_pct": round(avg_packet_loss, 2),
+            "avg_cpu_pct": round(res_agg["avg_cpu"] or 0.0, 1),
+            "avg_memory_pct": round(res_agg["avg_mem"] or 0.0, 1),
             "global_uptime_pct": round(uptime_agg["v"] or 100.0, 2),
             "total_bandwidth_bps": total_bw_bps,
             "total_bandwidth_display": format_bandwidth(total_bw_bps),
+            "resource_devices": [
+                {
+                    "name": d["name"],
+                    "cpu": round(d["cpu_utilization"] or 0.0, 1),
+                    "memory": round(d["memory_utilization"] or 0.0, 1),
+                }
+                for d in resource_devices
+            ],
         },
         "alerts": {
             "active_total": active_alerts.count(),

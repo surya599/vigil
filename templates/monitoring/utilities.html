@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Network Utilities & SLA Reports{% endblock %}
+{% block breadcrumb %}Diagnostics / Utilities & SLA Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+    <div>
+        <h3 class="fw-bold mb-1 text-light">
+            <i class="bi bi-tools text-info me-2"></i>Network Utilities &amp; SLA Compliance
+        </h3>
+        <p class="text-secondary mb-0 small">
+            Interactive diagnostic tools (DNS Resolution, TCP Port Probe, Traceroute) and automated device uptime reporting.
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="?days=7" class="btn btn-sm {% if uptime_report.period_days == 7 %}btn-primary{% else %}btn-outline-secondary text-light{% endif %}">7-Day SLA</a>
+        <a href="?days=30" class="btn btn-sm {% if uptime_report.period_days == 30 %}btn-primary{% else %}btn-outline-secondary text-light{% endif %}">30-Day SLA</a>
+    </div>
+</div>
+
+<!-- Diagnostic Utilities Grid -->
+<div class="row g-3 mb-4">
+    <!-- 1. DNS Resolution Check -->
+    <div class="col-lg-4">
+        <div class="noc-card p-4 h-100">
+            <h6 class="fw-bold text-light mb-2">
+                <i class="bi bi-globe2 text-info me-2"></i>DNS Resolution Check
+            </h6>
+            <p class="text-secondary small mb-3">Resolve forward A/AAAA records or reverse PTR hostnames with latency telemetry.</p>
+            <div class="input-group input-group-sm mb-3">
+                <input type="text" id="dnsTargetInput" class="form-control bg-dark text-light border-secondary font-monospace" placeholder="127.0.0.1 or localhost" value="localhost">
+                <button class="btn btn-info btn-sm fw-semibold" id="btnRunDns" onclick="runDnsCheck()">
+                    <i class="bi bi-search me-1"></i>Resolve
+                </button>
+            </div>
+            <div id="dnsResultBox" class="p-3 rounded bg-dark border border-secondary border-opacity-25 small font-monospace text-secondary">
+                Enter an IP or hostname to inspect DNS records.
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. TCP Port Availability Checker -->
+    <div class="col-lg-4">
+        <div class="noc-card p-4 h-100">
+            <h6 class="fw-bold text-light mb-2">
+                <i class="bi bi-plug text-success me-2"></i>TCP Port Availability
+            </h6>
+            <p class="text-secondary small mb-3">Test authorized private subnet endpoints for open service ports and handshake latency.</p>
+            <div class="mb-2">
+                <input type="text" id="portHostInput" class="form-control form-control-sm bg-dark text-light border-secondary font-monospace mb-2" placeholder="Target IP (e.g. 127.0.0.1)" value="127.0.0.1">
+                <div class="input-group input-group-sm">
+                    <input type="text" id="portListInput" class="form-control bg-dark text-light border-secondary font-monospace" placeholder="Ports (22,80,443,5432)" value="22,80,443,5432,6379,8000">
+                    <button class="btn btn-success btn-sm fw-semibold" id="btnRunPorts" onclick="runPortCheck()">
+                        <i class="bi bi-activity me-1"></i>Probe
+                    </button>
+                </div>
+            </div>
+            <div id="portResultBox" class="p-3 rounded bg-dark border border-secondary border-opacity-25 small font-monospace text-secondary" style="max-height: 170px; overflow-y: auto;">
+                Authorized RFC 1918 &amp; loopback hosts only.
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Traceroute Diagnostic -->
+    <div class="col-lg-4">
+        <div class="noc-card p-4 h-100">
+            <h6 class="fw-bold text-light mb-2">
+                <i class="bi bi-signpost-split text-warning me-2"></i>Path Traceroute
+            </h6>
+            <p class="text-secondary small mb-3">Trace Layer-3 hop-by-hop routing path and round-trip latency to an authorized host.</p>
+            <div class="input-group input-group-sm mb-3">
+                <input type="text" id="traceTargetInput" class="form-control bg-dark text-light border-secondary font-monospace" placeholder="127.0.0.1" value="127.0.0.1">
+                <button class="btn btn-warning btn-sm fw-semibold text-dark" id="btnRunTrace" onclick="runTraceroute()">
+                    <i class="bi bi-play-fill me-1"></i>Trace
+                </button>
+            </div>
+            <div id="traceResultBox" class="p-3 rounded bg-dark border border-secondary border-opacity-25 small font-monospace text-secondary" style="max-height: 170px; overflow-y: auto;">
+                Ready to trace route hops.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SLA & Uptime Compliance Report -->
+<div class="noc-card">
+    <div class="p-3 border-bottom border-secondary border-opacity-25 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h6 class="mb-0 fw-bold text-light">
+                <i class="bi bi-shield-check text-success me-2"></i>Monitored Infrastructure Uptime &amp; SLA Report ({{ uptime_report.period_days }} Days)
+            </h6>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25">
+                Fleet Average Availability: {{ uptime_report.fleet_average_uptime }}%
+            </span>
+            <span class="text-secondary small">Monitored Devices: <strong class="text-light">{{ uptime_report.total_monitored_devices }}</strong></span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table noc-table table-hover align-middle mb-0" id="uptimeReportTable">
+            <thead>
+                <tr>
+                    <th class="ps-3">Device</th>
+                    <th>IP Address</th>
+                    <th>Type</th>
+                    <th>Current Status</th>
+                    <th>Uptime ({{ uptime_report.period_days }}d)</th>
+                    <th>Avg Latency</th>
+                    <th>Avg Packet Loss</th>
+                    <th class="pe-3">SLA Tier</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in uptime_report.devices %}
+                <tr>
+                    <td class="ps-3 fw-semibold text-light">{{ row.name }}</td>
+                    <td class="font-monospace text-info">{{ row.ip_address }}</td>
+                    <td><span class="badge bg-secondary bg-opacity-25 text-light text-uppercase">{{ row.device_type }}</span></td>
+                    <td>
+                        <span class="status-badge status-{{ row.current_status }}">
+                            <span class="status-dot"></span>{{ row.current_status|upper }}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="progress bg-dark" style="width: 70px; height: 6px;">
+                                <div class="progress-bar {% if row.uptime_percentage >= 99.0 %}bg-success{% elif row.uptime_percentage >= 95.0 %}bg-warning{% else %}bg-danger{% endif %}" style="width: {{ row.uptime_percentage }}%"></div>
+                            </div>
+                            <span class="font-monospace small text-light">{{ row.uptime_percentage }}%</span>
+                        </div>
+                    </td>
+                    <td class="font-monospace text-light">{{ row.avg_latency_ms }} ms</td>
+                    <td class="font-monospace {% if row.avg_packet_loss_pct > 5 %}text-danger{% else %}text-secondary{% endif %}">{{ row.avg_packet_loss_pct }}%</td>
+                    <td class="pe-3">
+                        {% if row.sla_met %}
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25">SLA Met (&ge;99%)</span>
+                        {% else %}
+                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25">SLA Breach (&lt;99%)</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="8" class="text-center text-secondary py-4">No monitored devices registered.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = "{{ csrf_token }}";
+
+async function runDnsCheck() {
+    const target = document.getElementById("dnsTargetInput").value.trim();
+    const box = document.getElementById("dnsResultBox");
+    box.innerHTML = `<span class="text-info">Resolving ${target}...</span>`;
+    try {
+        const res = await fetch("/api/monitoring/utilities/dns/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+            body: JSON.stringify({ target })
+        });
+        const data = await res.json();
+        if (data.resolved) {
+            box.innerHTML = `<div class="text-success fw-bold mb-1"><i class="bi bi-check-circle me-1"></i>Resolved (${data.resolution_time_ms} ms)</div>
+                <div>Hostname: <span class="text-light">${data.hostname || "N/A"}</span></div>
+                <div>IPv4: <span class="text-info">${(data.ipv4_addresses || []).join(", ") || "None"}</span></div>`;
+        } else {
+            box.innerHTML = `<div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${data.error || "Resolution failed"}</div>`;
+        }
+    } catch (err) {
+        box.innerHTML = `<div class="text-danger">Request error: ${err}</div>`;
+    }
+}
+
+async function runPortCheck() {
+    const host = document.getElementById("portHostInput").value.trim();
+    const ports = document.getElementById("portListInput").value.trim();
+    const box = document.getElementById("portResultBox");
+    box.innerHTML = `<span class="text-info">Probing TCP ports on ${host}...</span>`;
+    try {
+        const res = await fetch("/api/monitoring/utilities/ports/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+            body: JSON.stringify({ host, ports })
+        });
+        const data = await res.json();
+        if (data.error) {
+            box.innerHTML = `<div class="text-danger"><i class="bi bi-shield-exclamation me-1"></i>${data.error}</div>`;
+            return;
+        }
+        const rows = (data.results || []).map(r =>
+            `<div class="d-flex justify-content-between border-bottom border-secondary border-opacity-10 py-1">
+                <span>Port <strong>${r.port}</strong> (${r.service})</span>
+                <span class="${r.is_open ? 'text-success fw-bold' : 'text-secondary'}">${r.is_open ? 'OPEN (' + r.latency_ms + 'ms)' : 'CLOSED'}</span>
+            </div>`
+        ).join("");
+        box.innerHTML = `<div class="text-light mb-1">Open Ports: <strong class="text-success">${(data.open_ports || []).length}</strong> / ${data.total_checked}</div>${rows}`;
+    } catch (err) {
+        box.innerHTML = `<div class="text-danger">Request error: ${err}</div>`;
+    }
+}
+
+async function runTraceroute() {
+    const target = document.getElementById("traceTargetInput").value.trim();
+    const box = document.getElementById("traceResultBox");
+    box.innerHTML = `<span class="text-warning">Tracing hops to ${target}...</span>`;
+    try {
+        const res = await fetch("/api/monitoring/utilities/traceroute/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+            body: JSON.stringify({ target, max_hops: 10 })
+        });
+        const data = await res.json();
+        if (data.error && !data.hops?.length) {
+            box.innerHTML = `<div class="text-danger">${data.error}</div>`;
+            return;
+        }
+        const hopsHtml = (data.hops || []).map(h =>
+            `<div>Hop ${h.hop}: <span class="text-info">${h.ip_address || '*'}</span> ${h.avg_latency_ms !== null ? '(' + h.avg_latency_ms + ' ms)' : '(timeout)'}</div>`
+        ).join("");
+        box.innerHTML = `<div class="text-success mb-1">Completed in ${data.duration_seconds}s (${data.total_hops} hops)</div>${hopsHtml || '<div class="text-secondary">Direct local route</div>'}`;
+    } catch (err) {
+        box.innerHTML = `<div class="text-danger">Request error: ${err}</div>`;
+    }
+}
+</script>
+{% endblock %}

@@ -184,6 +184,71 @@ class AlertEngine:
             )
             return None
 
+    @classmethod
+    def evaluate_device_resources(
+        cls,
+        device,
+        cpu_pct: Optional[float] = None,
+        memory_pct: Optional[float] = None,
+    ) -> dict:
+        """
+        Evaluates SNMP CPU and Memory utilization against active AlertThreshold limits.
+        Triggers/escalates or auto-resolves HIGH_CPU and HIGH_MEMORY alerts.
+        """
+        threshold = cls.get_active_threshold()
+        cpu_alert = None
+        mem_alert = None
+
+        if cpu_pct is not None:
+            if cpu_pct >= threshold.cpu_critical_pct:
+                cpu_alert, _ = cls.trigger_or_escalate_alert(
+                    device=device,
+                    alert_type=Alert.AlertType.HIGH_CPU,
+                    severity=Alert.Severity.CRITICAL,
+                    description=(
+                        f"Critical CPU utilization on '{device.name}' ({device.ip_address}): "
+                        f"{cpu_pct:.1f}% exceeds critical threshold ({threshold.cpu_critical_pct:.1f}%)."
+                    ),
+                )
+            elif cpu_pct >= threshold.cpu_warning_pct:
+                cpu_alert, _ = cls.trigger_or_escalate_alert(
+                    device=device,
+                    alert_type=Alert.AlertType.HIGH_CPU,
+                    severity=Alert.Severity.WARNING,
+                    description=(
+                        f"High CPU utilization on '{device.name}' ({device.ip_address}): "
+                        f"{cpu_pct:.1f}% exceeds warning threshold ({threshold.cpu_warning_pct:.1f}%)."
+                    ),
+                )
+            else:
+                cls.auto_resolve_alerts(device=device, alert_type=Alert.AlertType.HIGH_CPU)
+
+        if memory_pct is not None:
+            if memory_pct >= threshold.memory_critical_pct:
+                mem_alert, _ = cls.trigger_or_escalate_alert(
+                    device=device,
+                    alert_type=Alert.AlertType.HIGH_MEMORY,
+                    severity=Alert.Severity.CRITICAL,
+                    description=(
+                        f"Critical Memory utilization on '{device.name}' ({device.ip_address}): "
+                        f"{memory_pct:.1f}% exceeds critical threshold ({threshold.memory_critical_pct:.1f}%)."
+                    ),
+                )
+            elif memory_pct >= threshold.memory_warning_pct:
+                mem_alert, _ = cls.trigger_or_escalate_alert(
+                    device=device,
+                    alert_type=Alert.AlertType.HIGH_MEMORY,
+                    severity=Alert.Severity.WARNING,
+                    description=(
+                        f"High Memory utilization on '{device.name}' ({device.ip_address}): "
+                        f"{memory_pct:.1f}% exceeds warning threshold ({threshold.memory_warning_pct:.1f}%)."
+                    ),
+                )
+            else:
+                cls.auto_resolve_alerts(device=device, alert_type=Alert.AlertType.HIGH_MEMORY)
+
+        return {"cpu_alert": cpu_alert, "memory_alert": mem_alert}
+
     @staticmethod
     def compute_incident_kpis() -> dict:
         """

@@ -11,6 +11,8 @@
 
   <!-- Bootstrap 5 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <!-- Chart.js -->
@@ -237,9 +239,12 @@
   </div>
 
   <div class="sidebar-nav">
-    <div class="sidebar-section">Monitoring</div>
+    <div class="sidebar-section">Monitoring &amp; Discovery</div>
     <a href="{% url 'dashboard:overview' %}" class="sidebar-link {% block nav_overview %}{% endblock %}">
       <i data-lucide="layout-dashboard"></i> Overview
+    </a>
+    <a href="{% url 'devices:discovery' %}" class="sidebar-link {% block nav_discovery %}{% endblock %}">
+      <i data-lucide="radar"></i> Network Discovery
     </a>
     <a href="{% url 'devices:device-list' %}" class="sidebar-link {% block nav_devices %}{% endblock %}">
       <i data-lucide="server"></i> Network Devices
@@ -248,12 +253,15 @@
       <i data-lucide="git-fork"></i> Network Topology
     </a>
 
-    <div class="sidebar-section">Analytics</div>
+    <div class="sidebar-section">Analytics &amp; Diagnostics</div>
     <a href="{% url 'analytics:traffic-analytics' %}" class="sidebar-link {% block nav_traffic %}{% endblock %}">
       <i data-lucide="activity"></i> Traffic Analytics
     </a>
     <a href="{% url 'monitoring:performance' %}" class="sidebar-link {% block nav_performance %}{% endblock %}">
       <i data-lucide="trending-up"></i> Performance Monitoring
+    </a>
+    <a href="{% url 'monitoring:utilities' %}" class="sidebar-link {% block nav_utilities %}{% endblock %}">
+      <i data-lucide="wrench"></i> Network Utilities
     </a>
 
     <div class="sidebar-section">Incidents</div>

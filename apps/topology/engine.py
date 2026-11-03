@@ -26,7 +26,13 @@ DEVICE_TIER_MAP = {
     Device.DeviceType.SWITCH: 2,
     Device.DeviceType.ACCESS_POINT: 2,
     Device.DeviceType.SERVER: 3,
+    Device.DeviceType.APPLIANCE: 3,
+    Device.DeviceType.PRINTER: 3,
     Device.DeviceType.WORKSTATION: 3,
+    Device.DeviceType.DESKTOP: 3,
+    Device.DeviceType.LAPTOP: 3,
+    Device.DeviceType.MOBILE: 3,
+    Device.DeviceType.UNKNOWN: 3,
     Device.DeviceType.OTHER: 3,
 }
 
@@ -126,6 +132,13 @@ class TopologyEngine:
                     continue
                 if peer.name.lower() in desc_lower or peer.ip_address in desc_lower:
                     if not _link_exists(iface.device_id, peer.id):
+                        if "lldp" in desc_lower:
+                            disc_method = NetworkConnection.DiscoveryMethod.LLDP
+                        elif "cdp" in desc_lower:
+                            disc_method = NetworkConnection.DiscoveryMethod.CDP
+                        else:
+                            disc_method = NetworkConnection.DiscoveryMethod.INTERFACE_DESC
+
                         conn = NetworkConnection.objects.create(
                             source_device=iface.device,
                             destination_device=peer,
@@ -133,13 +146,15 @@ class TopologyEngine:
                             connection_type=NetworkConnection.ConnectionType.ETHERNET,
                             link_speed="1 Gbps",
                             is_discovered=True,
-                            description=f"Auto-discovered via interface {iface.interface_name} description",
+                            discovery_method=disc_method,
+                            is_confirmed=True,
+                            description=f"Confirmed link via interface {iface.interface_name} ({disc_method.upper()})",
                         )
                         conn.status = cls.compute_effective_link_status(conn)
                         conn.save(update_fields=["status"])
                         created_count += 1
 
-        # 2. Shared /24 IPv4 subnet adjacency discovery
+        # 2. Shared /24 IPv4 subnet adjacency discovery (Inferred Relationship)
         subnets = {}
         for d in devices:
             try:
@@ -166,7 +181,9 @@ class TopologyEngine:
                     connection_type=NetworkConnection.ConnectionType.ETHERNET,
                     link_speed="1 Gbps",
                     is_discovered=True,
-                    description=f"Auto-discovered via shared subnet {net_key}",
+                    discovery_method=NetworkConnection.DiscoveryMethod.SUBNET_INFERRED,
+                    is_confirmed=False,
+                    description=f"Inferred relationship via shared subnet {net_key}",
                 )
                 conn.status = cls.compute_effective_link_status(conn)
                 conn.save(update_fields=["status"])
@@ -236,6 +253,9 @@ class TopologyEngine:
                 "status": c.status,
                 "effective_status": eff_status,
                 "is_discovered": c.is_discovered,
+                "discovery_method": c.discovery_method,
+                "discovery_method_display": c.get_discovery_method_display(),
+                "is_confirmed": c.is_confirmed,
                 "source_interface_name": c.source_interface.interface_name if c.source_interface else None,
                 "destination_interface_name": c.destination_interface.interface_name if c.destination_interface else None,
                 "description": c.description,
@@ -274,6 +294,8 @@ class TopologyEngine:
             "down_edges": sum(1 for e in edges if e["effective_status"] == NetworkConnection.Status.DOWN),
             "manual_links": sum(1 for e in edges if not e["is_discovered"]),
             "discovered_links": sum(1 for e in edges if e["is_discovered"]),
+            "confirmed_links": sum(1 for e in edges if e["is_confirmed"]),
+            "inferred_links": sum(1 for e in edges if not e["is_confirmed"]),
         }
 
         return {

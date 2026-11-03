@@ -38,6 +38,16 @@ class DeviceMetric(models.Model):
         blank=True,
         help_text="Calculated latency jitter in milliseconds (ms)",
     )
+    cpu_utilization = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="SNMP CPU utilization percentage (0.0 to 100.0)",
+    )
+    memory_utilization = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="SNMP Memory utilization percentage (0.0 to 100.0)",
+    )
     recorded_at = models.DateTimeField(
         default=timezone.now,
         db_index=True,
@@ -170,6 +180,22 @@ class InterfaceMetric(models.Model):
     outgoing_bps = models.FloatField(
         default=0.0,
         help_text="Calculated outgoing traffic rate in bits per second",
+    )
+    in_errors = models.BigIntegerField(
+        default=0,
+        help_text="SNMP ifInErrors counter",
+    )
+    out_errors = models.BigIntegerField(
+        default=0,
+        help_text="SNMP ifOutErrors counter",
+    )
+    in_discards = models.BigIntegerField(
+        default=0,
+        help_text="SNMP ifInDiscards counter",
+    )
+    out_discards = models.BigIntegerField(
+        default=0,
+        help_text="SNMP ifOutDiscards counter",
     )
     recorded_at = models.DateTimeField(
         default=timezone.now,

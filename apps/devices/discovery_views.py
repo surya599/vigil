@@ -1,0 +1,502 @@
+"""
+VIGIL Phases 2, 3, 4, 5 & 6: Network Discovery, Interface Detection,
+Device Registration & Inventory Change Detection Views and REST APIs.
+"""
+import time
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect
+from django.utils import timezone
+from django.views.generic import TemplateView
+from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.response import Response
+
+from accounts.models import AuditLog
+from accounts.permissions import IsOperatorOrReadOnly
+from .discovery import NetworkDiscoveryEngine
+from .models import Device, DiscoveredDevice, DiscoveryScan, NetworkChangeEvent
+from .network_interfaces import NetworkInterfaceDetector
+from .serializers import (
+    DiscoveredDeviceSerializer,
+    DiscoveryScanSerializer,
+    NetworkChangeEventSerializer,
+)
+
+
+def _log_audit(user, action_name: str, target_type: str, target_id: str, details: str = "", request=None):
+    ip_addr = None
+    if request:
+        ip_addr = request.META.get("REMOTE_ADDR")
+    AuditLog.objects.create(
+        user=user if (user and user.is_authenticated) else None,
+        action=action_name,
+        target_type=target_type,
+        target_identifier=str(target_id)[:150],
+        details=details,
+        ip_address=ip_addr,
+    )
+
+
+def execute_discovery_scan_sync(
+    scan: DiscoveryScan,
+    host_ips_override=None,
+    max_workers: int = 32,
+    icmp_timeout: float = 0.4,
+    enable_port_probe: bool = True,
+) -> DiscoveryScan:
+    """
+    Executes a DiscoveryScan and persists DiscoveredDevice and NetworkChangeEvent records.
+    Can be called by the Celery task or synchronously in eager/targeted mode.
+    """
+    start_ts = time.monotonic()
+    scan.status = DiscoveryScan.Status.RUNNING
+    scan.progress_pct = 5
+    scan.save(update_fields=["status", "progress_pct"])
+
+    stop_cache_key = f"vigil:scan_stop:{scan.id}"
+
+    def _on_progress(pct: int, scanned: int, found: int):
+        scan.progress_pct = pct
+        scan.total_hosts_scanned = scanned
+        scan.save(update_fields=["progress_pct", "total_hosts_scanned"])
+
+    def _should_stop() -> bool:
+        return bool(cache.get(stop_cache_key))
+
+    try:
+        engine = NetworkDiscoveryEngine(
+            max_workers=max_workers,
+            icmp_timeout=icmp_timeout,
+            enable_port_probe=enable_port_probe,
+        )
+        records = engine.scan_subnet(
+            cidr_input=scan.target_cidr,
+            interface_name=scan.interface_name,
+            host_ips_override=host_ips_override,
+            progress_callback=_on_progress,
+            should_stop_callback=_should_stop,
+        )
+
+        if _should_stop():
+            scan.status = DiscoveryScan.Status.STOPPED
+        else:
+            scan.status = DiscoveryScan.Status.COMPLETED
+            scan.progress_pct = 100
+
+        sync_summary = NetworkDiscoveryEngine.sync_discovered_inventory(
+            records=records,
+            subnet_cidr=scan.target_cidr,
+            scan_obj=scan,
+            full_subnet_scan=(host_ips_override is None and not _should_stop()),
+        )
+        scan.discovered_count = sync_summary["discovered_total"]
+        scan.new_devices_count = sync_summary["new_devices"]
+        scan.changes_detected_count = sync_summary["changes_detected"]
+        if not scan.total_hosts_scanned:
+            scan.total_hosts_scanned = len(host_ips_override) if host_ips_override else len(records)
+    except Exception as exc:
+        scan.status = DiscoveryScan.Status.FAILED
+        scan.error_message = str(exc)
+    finally:
+        scan.completed_at = timezone.now()
+        scan.duration_seconds = round(time.monotonic() - start_ts, 2)
+        scan.save()
+
+        # Broadcast discovery event over WebSocket
+        from monitoring.broadcaster import broadcast_discovery_event
+        broadcast_discovery_event(scan)
+
+    return scan
+
+
+class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
+    """
+    VIGIL Network Discovery & Inventory Intelligence Dashboard (/discovery/).
+    Provides:
+    - Automatic local interface & CIDR selector
+    - Manual CIDR input with RFC1918 scope validation
+    - Start / Stop Scan controls & live progress bar
+    - Discovered devices table with search, filters, sorting, confidence badges
+    - Single & bulk "Add Selected to Monitoring" registration
+    - Unknown Devices & Trust Classification controls (Trusted, Untrusted, Ignored, Monitored)
+    - Network Change Events feed
+    """
+
+    template_name = "devices/discovery.html"
+    login_url = "accounts:login"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        interfaces = NetworkInterfaceDetector.detect_interfaces(include_loopback=False)
+        primary_iface = interfaces[0] if interfaces else None
+
+        # Filtering & Sorting parameters
+        q = self.request.GET.get("q", "").strip()
+        device_type = self.request.GET.get("device_type", "").strip()
+        trust_status = self.request.GET.get("trust_status", "").strip()
+        reachability = self.request.GET.get("reachability", "").strip()
+        sort_by = self.request.GET.get("sort", "-last_discovered_at").strip()
+
+        qs = DiscoveredDevice.objects.select_related("monitored_device", "last_scan")
+        if q:
+            qs = qs.filter(
+                Q(ip_address__icontains=q)
+                | Q(mac_address__icontains=q)
+                | Q(hostname__icontains=q)
+                | Q(manufacturer__icontains=q)
+            )
+        if device_type:
+            qs = qs.filter(device_type=device_type)
+        if trust_status:
+            qs = qs.filter(trust_status=trust_status)
+        if reachability == "reachable":
+            qs = qs.filter(is_reachable=True)
+        elif reachability == "unreachable":
+            qs = qs.filter(is_reachable=False)
+
+        allowed_sorts = {
+            "ip_address": "ip_address",
+            "-ip_address": "-ip_address",
+            "hostname": "hostname",
+            "device_type": "device_type",
+            "-confidence_score": "-confidence_score",
+            "-last_discovered_at": "-last_discovered_at",
+        }
+        qs = qs.order_by(allowed_sorts.get(sort_by, "-last_discovered_at"))
+
+        latest_scan = DiscoveryScan.objects.order_by("-started_at").first()
+        unknown_devices = DiscoveredDevice.objects.filter(
+            trust_status=DiscoveredDevice.TrustStatus.UNKNOWN
+        ).order_by("-last_discovered_at")[:15]
+        recent_changes = NetworkChangeEvent.objects.select_related("discovered_device").order_by("-created_at")[:20]
+
+        ctx.update({
+            "detected_interfaces": interfaces,
+            "primary_interface": primary_iface,
+            "default_cidr": primary_iface.network_cidr if primary_iface else "192.168.1.0/24",
+            "discovered_devices": qs[:200],
+            "total_discovered": DiscoveredDevice.objects.count(),
+            "reachable_discovered": DiscoveredDevice.objects.filter(is_reachable=True).count(),
+            "unknown_count": DiscoveredDevice.objects.filter(trust_status=DiscoveredDevice.TrustStatus.UNKNOWN).count(),
+            "trusted_count": DiscoveredDevice.objects.filter(trust_status=DiscoveredDevice.TrustStatus.TRUSTED).count(),
+            "monitored_linked_count": DiscoveredDevice.objects.filter(trust_status=DiscoveredDevice.TrustStatus.MONITORED).count(),
+            "untrusted_count": DiscoveredDevice.objects.filter(trust_status=DiscoveredDevice.TrustStatus.UNTRUSTED).count(),
+            "unknown_devices": unknown_devices,
+            "recent_changes": recent_changes,
+            "latest_scan": latest_scan,
+            "device_type_choices": Device.DeviceType.choices,
+            "trust_choices": DiscoveredDevice.TrustStatus.choices,
+            "search_query": q,
+            "current_type": device_type,
+            "current_trust": trust_status,
+            "current_reachability": reachability,
+            "current_sort": sort_by,
+        })
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        if not (request.user.is_superuser or (hasattr(request.user, "profile") and request.user.profile.is_operator)):
+            messages.error(request, "Only operators and administrators can run discovery or modify inventory.")
+            return redirect("devices:discovery")
+
+        action_type = request.POST.get("action", "")
+
+        if action_type == "start_scan":
+            cidr = request.POST.get("target_cidr", "").strip()
+            iface_name = request.POST.get("interface_name", "").strip()
+            ok, msg, info = NetworkInterfaceDetector.validate_authorized_cidr(cidr)
+            if not ok or not info:
+                messages.error(request, msg)
+                return redirect("devices:discovery")
+
+            scan = DiscoveryScan.objects.create(
+                interface_name=iface_name,
+                target_cidr=info["network_cidr"],
+                status=DiscoveryScan.Status.PENDING,
+                started_by=request.user,
+            )
+            _log_audit(request.user, "start_discovery_scan", "DiscoveryScan", scan.target_cidr, f"Interface: {iface_name}", request)
+
+            # Dispatch via Celery task (runs eagerly in dev/test or async in worker)
+            from monitoring.tasks import task_run_network_discovery
+            task_run_network_discovery.delay(scan.id)
+            messages.success(
+                request,
+                f"Discovery scan completed for {scan.target_cidr}: found {scan.discovered_count} device(s).",
+            )
+
+        elif action_type == "stop_scan":
+            scan_id = request.POST.get("scan_id")
+            if scan_id and str(scan_id).isdigit():
+                scan = get_object_or_404(DiscoveryScan, pk=int(scan_id))
+                cache.set(f"vigil:scan_stop:{scan.id}", True, timeout=120)
+                scan.status = DiscoveryScan.Status.STOPPED
+                scan.completed_at = timezone.now()
+                scan.save(update_fields=["status", "completed_at"])
+                _log_audit(request.user, "stop_discovery_scan", "DiscoveryScan", scan.target_cidr, "", request)
+                messages.info(request, f"Stopped discovery scan #{scan.id} ({scan.target_cidr}).")
+
+        elif action_type == "register_selected":
+            device_ids = request.POST.getlist("discovered_ids")
+            if not device_ids:
+                messages.warning(request, "No discovered devices were selected for monitoring.")
+                return redirect("devices:discovery")
+
+            registered = 0
+            for raw_id in device_ids:
+                if str(raw_id).isdigit():
+                    d_dev = DiscoveredDevice.objects.filter(pk=int(raw_id)).first()
+                    if d_dev:
+                        d_dev.register_for_monitoring()
+                        registered += 1
+            _log_audit(request.user, "register_discovered_devices", "DiscoveredDevice", f"{registered} devices", f"IDs: {device_ids}", request)
+            messages.success(request, f"Registered {registered} discovered device(s) into continuous monitoring.")
+
+        elif action_type == "update_device":
+            disc_id = request.POST.get("discovered_id")
+            new_trust = request.POST.get("trust_status")
+            new_type = request.POST.get("device_type")
+            if disc_id and str(disc_id).isdigit():
+                d_dev = get_object_or_404(DiscoveredDevice, pk=int(disc_id))
+                if new_trust in dict(DiscoveredDevice.TrustStatus.choices):
+                    d_dev.trust_status = new_trust
+                    if new_trust == DiscoveredDevice.TrustStatus.MONITORED:
+                        d_dev.register_for_monitoring()
+                if new_type in dict(Device.DeviceType.choices) and new_type != d_dev.device_type:
+                    old_t = d_dev.device_type
+                    d_dev.device_type = new_type
+                    d_dev.type_manually_set = True
+                    d_dev.confidence_score = 100
+                    d_dev.classification_reason = f"Manually classified by {request.user.username}"
+                    NetworkChangeEvent.objects.create(
+                        discovered_device=d_dev,
+                        event_type=NetworkChangeEvent.EventType.TYPE_CHANGED,
+                        severity=NetworkChangeEvent.Severity.INFO,
+                        previous_value=old_t,
+                        new_value=new_type,
+                        description=f"Operator {request.user.username} manually updated device type for {d_dev.ip_address} from '{old_t}' to '{new_type}'.",
+                    )
+                d_dev.save()
+                _log_audit(request.user, "update_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"trust={d_dev.trust_status}, type={d_dev.device_type}", request)
+                messages.success(request, f"Updated inventory record for {d_dev.ip_address}.")
+
+        return redirect("devices:discovery")
+
+
+# ─── REST API Views & ViewSets ────────────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def discovery_interfaces_api(request):
+    """
+    GET /api/discovery/interfaces/
+    Returns all detected host network interfaces, IPv4 addresses, subnet masks,
+    default gateways, MAC addresses, and calculated CIDR ranges.
+    """
+    include_loopback = request.query_params.get("include_loopback", "false").lower() in ("true", "1")
+    active_only = request.query_params.get("active_only", "false").lower() in ("true", "1")
+    interfaces = NetworkInterfaceDetector.detect_interfaces(
+        include_loopback=include_loopback,
+        active_only=active_only,
+    )
+    return Response({
+        "count": len(interfaces),
+        "primary_interface": interfaces[0].to_dict() if interfaces else None,
+        "interfaces": [iface.to_dict() for iface in interfaces],
+    })
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def validate_cidr_api(request):
+    """
+    POST /api/discovery/validate-cidr/
+    Validates a CIDR or IP/mask against VIGIL's authorized RFC1918 scan scope.
+    """
+    cidr = request.data.get("cidr", "")
+    is_valid, message, info = NetworkInterfaceDetector.validate_authorized_cidr(cidr)
+    if not is_valid:
+        return Response({"valid": False, "error": message}, status=status.HTTP_400_BAD_REQUEST)
+    return Response({"valid": True, "message": message, "network": info}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated, IsOperatorOrReadOnly])
+def start_discovery_scan_api(request):
+    """
+    POST /api/discovery/scans/start/
+    Validates target CIDR, creates a DiscoveryScan, and dispatches the scan task.
+    """
+    cidr = request.data.get("target_cidr", "")
+    iface_name = request.data.get("interface_name", "")
+    host_ips = request.data.get("host_ips")
+
+    is_valid, message, info = NetworkInterfaceDetector.validate_authorized_cidr(cidr)
+    if not is_valid or not info:
+        return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+
+    scan = DiscoveryScan.objects.create(
+        interface_name=iface_name,
+        target_cidr=info["network_cidr"],
+        status=DiscoveryScan.Status.PENDING,
+        started_by=request.user,
+    )
+    _log_audit(request.user, "api_start_discovery_scan", "DiscoveryScan", scan.target_cidr, f"Interface: {iface_name}", request)
+
+    from monitoring.tasks import task_run_network_discovery
+    task_run_network_discovery.delay(scan.id, host_ips_override=host_ips)
+    scan.refresh_from_db()
+
+    return Response(DiscoveryScanSerializer(scan).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated, IsOperatorOrReadOnly])
+def stop_discovery_scan_api(request, pk: int):
+    """POST /api/discovery/scans/<pk>/stop/"""
+    scan = get_object_or_404(DiscoveryScan, pk=pk)
+    cache.set(f"vigil:scan_stop:{scan.id}", True, timeout=120)
+    scan.status = DiscoveryScan.Status.STOPPED
+    scan.completed_at = timezone.now()
+    scan.save(update_fields=["status", "completed_at"])
+    _log_audit(request.user, "api_stop_discovery_scan", "DiscoveryScan", scan.target_cidr, "", request)
+    return Response(DiscoveryScanSerializer(scan).data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def discovery_scan_status_api(request, pk: int):
+    """GET /api/discovery/scans/<pk>/status/"""
+    scan = get_object_or_404(DiscoveryScan, pk=pk)
+    return Response(DiscoveryScanSerializer(scan).data, status=status.HTTP_200_OK)
+
+
+class DiscoveredDeviceViewSet(viewsets.ModelViewSet):
+    """
+    REST API for managing discovered network inventory, updating trust status
+    or manual device classification, and promoting devices to continuous monitoring.
+    """
+    queryset = DiscoveredDevice.objects.select_related("monitored_device", "last_scan").order_by("-last_discovered_at")
+    serializer_class = DiscoveredDeviceSerializer
+    permission_classes = [permissions.IsAuthenticated, IsOperatorOrReadOnly]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        trust = self.request.query_params.get("trust_status")
+        dev_type = self.request.query_params.get("device_type")
+        reachable = self.request.query_params.get("is_reachable")
+        q = self.request.query_params.get("q", "").strip()
+
+        if trust:
+            qs = qs.filter(trust_status=trust)
+        if dev_type:
+            qs = qs.filter(device_type=dev_type)
+        if reachable is not None:
+            qs = qs.filter(is_reachable=reachable.lower() in ("true", "1"))
+        if q:
+            qs = qs.filter(
+                Q(ip_address__icontains=q)
+                | Q(mac_address__icontains=q)
+                | Q(hostname__icontains=q)
+                | Q(manufacturer__icontains=q)
+            )
+        return qs
+
+    @action(detail=False, methods=["post"], url_path="register")
+    def register_for_monitoring(self, request):
+        """
+        POST /api/discovery/devices/register/
+        Body: {"ids": [1, 2, 3]} or {"register_all": true}
+        Registers selected discovered devices into monitored Device records without duplicates.
+        """
+        ids = request.data.get("ids", [])
+        register_all = bool(request.data.get("register_all", False))
+
+        if register_all:
+            targets = DiscoveredDevice.objects.exclude(trust_status=DiscoveredDevice.TrustStatus.IGNORED)
+        else:
+            targets = DiscoveredDevice.objects.filter(id__in=ids)
+
+        registered_devices = []
+        for d_dev in targets:
+            mon_dev = d_dev.register_for_monitoring()
+            registered_devices.append({
+                "discovered_id": d_dev.id,
+                "monitored_device_id": mon_dev.id,
+                "name": mon_dev.name,
+                "ip_address": mon_dev.ip_address,
+            })
+
+        _log_audit(
+            request.user,
+            "api_register_discovered_devices",
+            "DiscoveredDevice",
+            f"{len(registered_devices)} devices",
+            "",
+            request,
+        )
+        return Response({
+            "registered_count": len(registered_devices),
+            "devices": registered_devices,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="classify")
+    def classify(self, request, pk=None):
+        """
+        POST /api/discovery/devices/<pk>/classify/
+        Allows an operator to manually set trust_status and/or device_type.
+        """
+        d_dev = self.get_object()
+        new_trust = request.data.get("trust_status")
+        new_type = request.data.get("device_type")
+
+        if new_trust and new_trust in dict(DiscoveredDevice.TrustStatus.choices):
+            d_dev.trust_status = new_trust
+            if new_trust == DiscoveredDevice.TrustStatus.MONITORED:
+                d_dev.register_for_monitoring()
+
+        if new_type and new_type in dict(Device.DeviceType.choices) and new_type != d_dev.device_type:
+            old_type = d_dev.device_type
+            d_dev.device_type = new_type
+            d_dev.type_manually_set = True
+            d_dev.confidence_score = 100
+            d_dev.classification_reason = f"Manually classified by {request.user.username}"
+            NetworkChangeEvent.objects.create(
+                discovered_device=d_dev,
+                event_type=NetworkChangeEvent.EventType.TYPE_CHANGED,
+                severity=NetworkChangeEvent.Severity.INFO,
+                previous_value=old_type,
+                new_value=new_type,
+                description=f"Operator {request.user.username} changed device type for {d_dev.ip_address} from '{old_type}' to '{new_type}'.",
+            )
+
+        d_dev.save()
+        _log_audit(request.user, "api_classify_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"trust={d_dev.trust_status}, type={d_dev.device_type}", request)
+        return Response(DiscoveredDeviceSerializer(d_dev).data, status=status.HTTP_200_OK)
+
+
+class NetworkChangeEventViewSet(viewsets.ReadOnlyModelViewSet):
+    """REST API for inspecting and acknowledging network inventory change events."""
+    queryset = NetworkChangeEvent.objects.select_related("discovered_device").order_by("-created_at")
+    serializer_class = NetworkChangeEventSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        event_type = self.request.query_params.get("event_type")
+        ack = self.request.query_params.get("is_acknowledged")
+        if event_type:
+            qs = qs.filter(event_type=event_type)
+        if ack is not None:
+            qs = qs.filter(is_acknowledged=ack.lower() in ("true", "1"))
+        return qs
+
+    @action(detail=True, methods=["post"], url_path="acknowledge", permission_classes=[permissions.IsAuthenticated, IsOperatorOrReadOnly])
+    def acknowledge(self, request, pk=None):
+        ev = self.get_object()
+        ev.is_acknowledged = True
+        ev.save(update_fields=["is_acknowledged"])
+        return Response(NetworkChangeEventSerializer(ev).data, status=status.HTTP_200_OK)

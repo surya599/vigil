@@ -42,7 +42,7 @@
         <i data-lucide="radio" style="color:var(--noc-warning);width:20px;height:20px;"></i>
       </div>
       <div class="stat-value" id="top-discovered-links" style="color:var(--noc-warning);">{{ discovered_links }}</div>
-      <div class="stat-label">Discovered Links</div>
+      <div class="stat-label">Discovered ({{ confirmed_links|default:0 }} Confirmed / {{ inferred_links|default:0 }} Inferred)</div>
     </div>
   </div>
 </div>
@@ -183,13 +183,13 @@
             </span>
           </td>
           <td>
-            {% if c.is_discovered %}
-              <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size:.7rem;">
-                Auto-Discovered
+            {% if c.is_confirmed %}
+              <span class="badge bg-info-subtle text-info border border-info-subtle" style="font-size:.7rem;">
+                Confirmed ({{ c.get_discovery_method_display }})
               </span>
             {% else %}
-              <span class="badge bg-info-subtle text-info border border-info-subtle" style="font-size:.7rem;">
-                Manual (Admin)
+              <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size:.7rem;">
+                Inferred ({{ c.get_discovery_method_display }})
               </span>
             {% endif %}
           </td>

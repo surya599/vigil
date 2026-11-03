@@ -20,6 +20,13 @@ class NetworkConnection(models.Model):
         DEGRADED = "degraded", "Degraded"
         DOWN = "down", "Down"
 
+    class DiscoveryMethod(models.TextChoices):
+        MANUAL = "manual", "Manual (Administrator)"
+        LLDP = "lldp", "LLDP (SNMP Confirmed)"
+        CDP = "cdp", "CDP (SNMP Confirmed)"
+        INTERFACE_DESC = "interface_desc", "Interface Alias (Confirmed)"
+        SUBNET_INFERRED = "subnet_inferred", "Shared Subnet (Inferred)"
+
     source_device = models.ForeignKey(
         "devices.Device",
         on_delete=models.CASCADE,
@@ -69,6 +76,18 @@ class NetworkConnection(models.Model):
     is_discovered = models.BooleanField(
         default=False,
         help_text="True if automatically discovered via LLDP/CDP/ARP; False if configured manually by administrator",
+    )
+    discovery_method = models.CharField(
+        max_length=30,
+        choices=DiscoveryMethod.choices,
+        default=DiscoveryMethod.MANUAL,
+        db_index=True,
+        help_text="How this topology link was established (LLDP, CDP, Manual, or Subnet Inferred)",
+    )
+    is_confirmed = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="True if confirmed via LLDP/CDP/Interface/Manual; False if inferred from shared subnet",
     )
     description = models.TextField(
         blank=True,

@@ -164,3 +164,23 @@ def broadcast_traffic_snapshot(snapshot) -> bool:
     }
 
     return _send_group_event(NOC_DASHBOARD_GROUP, payload)
+
+
+def broadcast_discovery_event(scan) -> bool:
+    """
+    Broadcasts network discovery scan completion/progress to all NOC dashboard clients.
+    """
+    payload = {
+        "type": "discovery_scan_update",
+        "scan_id": scan.id,
+        "target_cidr": scan.target_cidr,
+        "interface_name": scan.interface_name,
+        "status": scan.status,
+        "progress_pct": scan.progress_pct,
+        "discovered_count": scan.discovered_count,
+        "new_devices_count": scan.new_devices_count,
+        "changes_detected_count": scan.changes_detected_count,
+        "duration_seconds": scan.duration_seconds,
+        "timestamp": timezone.now().isoformat(),
+    }
+    return _send_group_event(NOC_DASHBOARD_GROUP, payload)

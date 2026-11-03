@@ -98,6 +98,10 @@ class NOCDashboardConsumer(AsyncJsonWebsocketConsumer):
         """Forwards aggregated network traffic snapshots to client."""
         await self.send_json(event)
 
+    async def discovery_scan_update(self, event):
+        """Forwards network discovery scan progress and completion events to client."""
+        await self.send_json(event)
+
     # ── Database Helpers ─────────────────────────────────────────────────
 
     @database_sync_to_async

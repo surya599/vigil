@@ -392,3 +392,39 @@ def task_cleanup_historical_metrics(retention_days: int = 30):
         "device_metrics_deleted": dev_deleted,
         "interface_metrics_deleted": if_deleted,
     }
+
+
+@shared_task(name="monitoring.tasks.task_run_network_discovery")
+def task_run_network_discovery(scan_id: int, host_ips_override=None):
+    """
+    Asynchronously executes a VIGIL Network Discovery Scan over an authorized subnet.
+    Uses a per-subnet cache lock so duplicate concurrent scans on the same CIDR are prevented.
+    """
+    from devices.models import DiscoveryScan
+    from devices.discovery_views import execute_discovery_scan_sync
+
+    try:
+        scan = DiscoveryScan.objects.get(id=scan_id)
+    except DiscoveryScan.DoesNotExist:
+        return {"status": "error", "reason": "scan_not_found", "scan_id": scan_id}
+
+    lock_key = f"vigil:lock:discovery:{scan.target_cidr}"
+    if not cache.add(lock_key, scan.id, timeout=300):
+        scan.status = DiscoveryScan.Status.FAILED
+        scan.error_message = f"Another discovery scan is already running for {scan.target_cidr}."
+        scan.completed_at = timezone.now()
+        scan.save(update_fields=["status", "error_message", "completed_at"])
+        return {"status": "skipped", "reason": "subnet_scan_already_running", "scan_id": scan_id}
+
+    try:
+        execute_discovery_scan_sync(scan, host_ips_override=host_ips_override)
+        return {
+            "status": scan.status,
+            "scan_id": scan.id,
+            "target_cidr": scan.target_cidr,
+            "discovered_count": scan.discovered_count,
+            "new_devices_count": scan.new_devices_count,
+            "changes_detected_count": scan.changes_detected_count,
+        }
+    finally:
+        cache.delete(lock_key)

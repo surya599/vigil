@@ -66,3 +66,33 @@ class UserProfile(models.Model):
     @property
     def can_acknowledge_alerts(self) -> bool:
         return self.is_operator
+
+
+class AuditLog(models.Model):
+    """
+    Security audit log recording privileged operator/administrator actions
+    (network discovery scans, device onboarding, trust changes, threshold edits).
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
+    action = models.CharField(max_length=80, db_index=True)
+    target_type = models.CharField(max_length=80, blank=True)
+    target_identifier = models.CharField(max_length=150, blank=True)
+    details = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(protocol="both", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Audit Log"
+        verbose_name_plural = "Audit Logs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        actor = self.user.username if self.user else "system"
+        return f"[{self.created_at:%Y-%m-%d %H:%M:%S}] {actor} -> {self.action} ({self.target_identifier})"

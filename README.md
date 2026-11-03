@@ -108,17 +108,40 @@ NetPulse/
 | Phase | Description | Status |
 |---|---|---|
 | **VIGIL Phase 1** | **Project inspection, architecture plan & complete VIGIL rebranding** | **COMPLETED** |
-| VIGIL Phase 2 | Automatic network interface & subnet CIDR detection | *Upcoming / Next* |
-| VIGIL Phase 3 | Multi-technique ARP, ICMP & DNS network discovery engine | *Pending* |
-| VIGIL Phase 4 | Device identification, confidence scoring & MAC OUI vendor lookup | *Pending* |
-| VIGIL Phase 5 | Network Discovery dashboard, live scan progress & device onboarding | *Pending* |
-| VIGIL Phase 6 | Network inventory change detection & Unknown/Trusted device workflow | *Pending* |
-| VIGIL Phase 7 | Reliable continuous monitoring & real-time WebSocket dashboard updates | *Pending* |
-| VIGIL Phase 8 | Advanced SNMPv2c/v3 telemetry (CPU, Memory, Errors, Discards, MIB-II) | *Pending* |
-| VIGIL Phase 9 | Confirmed (LLDP/CDP) vs. inferred network topology visualization | *Pending* |
-| VIGIL Phase 10 | Advanced NOC incident alert deduplication, change alerts & analytics | *Pending* |
-| VIGIL Phase 11 | Advanced network utilities (DNS, Traceroute, Port check, Uptime reports) | *Pending* |
-| VIGIL Phase 12 | Production deployment, authorized scan scope guards & security hardening | *Pending* |
+| **VIGIL Phase 2** | **Automatic network interface & subnet CIDR detection (`psutil`, `ipaddress`)** | **COMPLETED** |
+| **VIGIL Phase 3** | **Multi-technique ARP, ICMP & DNS network discovery engine (`scapy`, `arp -a`)** | **COMPLETED** |
+| **VIGIL Phase 4** | **Device identification, confidence scoring & MAC OUI vendor lookup** | **COMPLETED** |
+| **VIGIL Phase 5** | **Network Discovery dashboard (`/discovery/`), live scan progress & onboarding** | **COMPLETED** |
+| **VIGIL Phase 6** | **Network inventory change detection & Unknown/Trusted device workflow** | **COMPLETED** |
+| **VIGIL Phase 7** | **Reliable continuous monitoring & real-time WebSocket dashboard updates** | **COMPLETED** |
+| **VIGIL Phase 8** | **Advanced SNMPv2c/v3 telemetry (CPU, Memory, Errors, Discards, MIB-II)** | **COMPLETED** |
+| **VIGIL Phase 9** | **Confirmed (LLDP/CDP/Manual) vs. inferred network topology visualization** | **COMPLETED** |
+| **VIGIL Phase 10** | **Advanced NOC incident alert deduplication, CPU/Memory & change alerts** | **COMPLETED** |
+| **VIGIL Phase 11** | **Advanced network utilities (DNS, Traceroute, Port check, Uptime reports)** | **COMPLETED** |
+| **VIGIL Phase 12** | **Production deployment, authorized scan scope guards & AuditLog hardening** | **COMPLETED** |
+
+---
+
+## Windows Npcap, ARP Discovery & PostgreSQL Backup Guide
+
+### 1. Windows Layer-2 ARP Scanning Requirements
+- **Scapy Raw Layer-2 ARP Broadcasts**: On Windows, raw Ethernet frame injection (`Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(...)`) requires **Npcap** (installed in WinPcap API-compatible mode) and **Administrator privileges**.
+- **Built-in OS ARP Neighbor Table Fallback**: When Npcap or Administrator privileges are unavailable, VIGIL's `NetworkDiscoveryEngine` automatically falls back to concurrent ICMP + TCP neighbor probing combined with reading the Windows OS ARP neighbor cache (`arp -a`). This ensures local-subnet devices are reliably discovered via MAC/ARP even when Windows Firewall blocks ICMP Echo Replies.
+- **Authorized RFC 1918 Scan Scope Guard**: VIGIL strictly validates all discovery targets via `NetworkInterfaceDetector.validate_authorized_cidr()`. Scanning public internet IP ranges is blocked, and maximum subnet size is capped at `/22` (`1024` hosts).
+
+### 2. Detect Local Network Interfaces via CLI
+```powershell
+.\.venv\Scripts\python.exe manage.py detect_interfaces
+```
+
+### 3. PostgreSQL Backup & Restore (`pg_dump` / `pg_restore`)
+```powershell
+# Backup VIGIL PostgreSQL database
+pg_dump -U postgres -h 127.0.0.1 -p 5432 -F c -f vigil_backup.dump netpulse_db
+
+# Restore VIGIL PostgreSQL database
+pg_restore -U postgres -h 127.0.0.1 -p 5432 -d netpulse_db --clean vigil_backup.dump
+```
 
 ---
 
