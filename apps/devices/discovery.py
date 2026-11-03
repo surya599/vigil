@@ -32,6 +32,9 @@ logger = logging.getLogger("vigil.discovery.engine")
 
 COMMON_DISCOVERY_PORTS = (22, 80, 443, 631, 3389, 9100)
 
+# In-process stop registry for immediate thread cancellation when "Stop Scan" is clicked
+ACTIVE_SCAN_STOP_FLAGS: Set[int] = set()
+
 
 @dataclass
 class DiscoveredHostRecord:
@@ -67,20 +70,60 @@ class NetworkDiscoveryEngine:
 
     def __init__(
         self,
-        max_workers: int = 32,
-        icmp_timeout: float = 0.6,
-        port_timeout: float = 0.25,
+        max_workers: int = 96,
+        icmp_timeout: float = 0.35,
+        port_timeout: float = 0.2,
         enable_port_probe: bool = True,
         enable_snmp_probe: bool = False,
         snmp_community: str = "public",
     ):
-        self.max_workers = max(1, min(max_workers, 64))
+        self.max_workers = max(1, min(max_workers, 128))
         self.icmp_timeout = max(0.1, min(icmp_timeout, 5.0))
         self.port_timeout = max(0.05, min(port_timeout, 2.0))
         self.enable_port_probe = enable_port_probe
         self.enable_snmp_probe = enable_snmp_probe
         self.snmp_community = snmp_community
         self.icmp_checker = ICMPChecker(timeout=self.icmp_timeout)
+
+    @staticmethod
+    def prime_os_arp_cache(
+        target_ips: List[str],
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        should_stop_callback: Optional[Callable[[], bool]] = None,
+    ) -> int:
+        """
+        Rapidly transmits non-blocking UDP datagrams to target IPs in batches of 64.
+        On directly connected LAN/Wi-Fi subnets (/24, /23, /22, /20), this causes the
+        OS kernel (Windows/Linux) to broadcast Layer-2 ARP requests in parallel without
+        waiting 3 seconds per dead IP.
+        """
+        total = len(target_ips)
+        if total == 0:
+            return 0
+        primed = 0
+        batch_size = 64
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setblocking(False)
+                for idx, ip_str in enumerate(target_ips, start=1):
+                    if should_stop_callback and should_stop_callback():
+                        break
+                    try:
+                        sock.sendto(b"", (ip_str, 33434))
+                    except Exception:
+                        pass
+                    primed = idx
+                    if idx % batch_size == 0 or idx == total:
+                        time.sleep(0.03)
+                        if progress_callback:
+                            pct = min(45, max(5, int((idx / total) * 45)))
+                            progress_callback(pct, idx, 0)
+            # Brief pause for LAN/Wi-Fi neighbors to reply to kernel ARP broadcasts
+            if not (should_stop_callback and should_stop_callback()):
+                time.sleep(0.35)
+        except Exception as exc:
+            logger.debug("OS ARP cache priming skipped: %s", exc)
+        return primed
 
     @staticmethod
     def try_scapy_arp_scan(cidr: str, timeout: float = 1.2) -> Dict[str, str]:
@@ -235,15 +278,39 @@ class NetworkDiscoveryEngine:
         # Stage 1: Attempt fast Scapy ARP sweep (if Npcap / root is present)
         arp_table = self.try_scapy_arp_scan(normalized_cidr)
 
-        # Stage 2: Concurrent ICMP & TCP probing (also populates OS ARP table for ICMP-blocked hosts)
+        # Stage 2: Prime OS ARP table across all target IPs (supports /24, /23, /22, /20 rapidly)
+        if total_targets > 4 and not (should_stop_callback and should_stop_callback()):
+            self.prime_os_arp_cache(
+                target_ips=target_ips,
+                progress_callback=progress_callback,
+                should_stop_callback=should_stop_callback,
+            )
+
+        os_arp = self.read_os_arp_table(subnet=net)
+        for ip_str, mac_addr in os_arp.items():
+            if ip_str not in arp_table:
+                arp_table[ip_str] = mac_addr
+
+        # Determine which IPs need deep Layer-3/4 ICMP & TCP probing:
+        # On a directly connected subnet (or when ARP discovered hosts on a large >64 host subnet),
+        # probing ARP-confirmed hosts + gateway + local IPs avoids waiting 3s per unused IP on Windows.
         probe_results: Dict[str, Tuple[bool, Optional[float], List[int]]] = {}
-        completed = 0
         probe_on_fail = total_targets <= 32
 
+        if total_targets > 64 and (local_ip_map or arp_table):
+            candidate_probe_ips = set(arp_table.keys()) | set(local_ip_map.keys())
+            if inferred_gateway and ipaddress.IPv4Address(inferred_gateway) in net:
+                candidate_probe_ips.add(inferred_gateway)
+            ips_to_probe = [ip for ip in target_ips if ip in candidate_probe_ips]
+        else:
+            ips_to_probe = target_ips
+
+        completed = 0
+        total_probe = max(1, len(ips_to_probe))
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_ip = {
                 executor.submit(self._probe_single_host, ip, probe_on_fail): ip
-                for ip in target_ips
+                for ip in ips_to_probe
             }
             for future in as_completed(future_to_ip):
                 if should_stop_callback and should_stop_callback():
@@ -251,13 +318,13 @@ class NetworkDiscoveryEngine:
                 ip_str, reachable, latency_ms, open_ports = future.result()
                 probe_results[ip_str] = (reachable, latency_ms, open_ports)
                 completed += 1
-                if progress_callback and (completed % 10 == 0 or completed == total_targets):
-                    pct = min(90, int((completed / max(1, total_targets)) * 85))
-                    progress_callback(pct, completed, len(arp_table))
+                if progress_callback and (completed % 5 == 0 or completed == total_probe):
+                    pct = min(90, 45 + int((completed / total_probe) * 45))
+                    progress_callback(pct, total_targets if total_targets > 64 else completed, len(arp_table))
 
-        # Stage 3: Read OS ARP cache to catch hosts that answered ARP but blocked ICMP Echo
-        os_arp = self.read_os_arp_table(subnet=net)
-        for ip_str, mac_addr in os_arp.items():
+        # Re-read OS ARP cache in case ICMP probes resolved any additional MACs
+        os_arp_after = self.read_os_arp_table(subnet=net)
+        for ip_str, mac_addr in os_arp_after.items():
             if ip_str not in arp_table:
                 arp_table[ip_str] = mac_addr
 
@@ -273,12 +340,10 @@ class NetworkDiscoveryEngine:
             if host_ips_override is None or ip_str in target_ips:
                 active_ips.add(ip_str)
 
-        # Stage 4: Enrich discovered hosts (Reverse DNS, MAC OUI, Device Classification)
-        discovered_records: List[DiscoveredHostRecord] = []
-        for ip_str in sorted(active_ips, key=lambda x: tuple(int(p) for p in x.split("."))):
-            if should_stop_callback and should_stop_callback():
-                break
+        # Stage 4: Concurrently enrich discovered hosts (Reverse DNS, TCP Ports, MAC OUI, Classification)
+        sorted_active_ips = sorted(active_ips, key=lambda x: tuple(int(p) for p in x.split(".")))
 
+        def _enrich_active_host(ip_str: str) -> DiscoveredHostRecord:
             methods: List[str] = []
             mac_addr = arp_table.get(ip_str)
             if ip_str in local_ip_map and not mac_addr:
@@ -289,7 +354,6 @@ class NetworkDiscoveryEngine:
 
             icmp_ok, latency_ms, open_ports = probe_results.get(ip_str, (False, None, []))
             if not icmp_ok and not open_ports and self.enable_port_probe:
-                # Host was discovered via ARP (blocked ICMP); probe its TCP service ports now
                 open_ports = self.probe_tcp_ports(ip_str)
             if icmp_ok and latency_ms is not None:
                 methods.append("icmp")
@@ -301,9 +365,10 @@ class NetworkDiscoveryEngine:
             if open_ports:
                 methods.append("port")
 
-            hostname = self.resolve_reverse_dns(ip_str)
-            if not hostname and ip_str in local_ip_map:
+            if ip_str in local_ip_map:
                 hostname = socket.gethostname()
+            else:
+                hostname = self.resolve_reverse_dns(ip_str)
             if hostname:
                 methods.append("dns")
 
@@ -313,26 +378,36 @@ class NetworkDiscoveryEngine:
                 hostname=hostname,
                 open_ports=open_ports,
                 is_gateway=(ip_str == inferred_gateway),
+                is_local_host=(ip_str in local_ip_map),
             )
 
-            discovered_records.append(
-                DiscoveredHostRecord(
-                    ip_address=ip_str,
-                    mac_address=mac_addr,
-                    hostname=hostname,
-                    manufacturer=classification.manufacturer,
-                    device_type=classification.device_type,
-                    confidence_score=classification.confidence_score,
-                    confidence_label=classification.confidence_label,
-                    classification_reason=classification.reason,
-                    discovery_methods=methods or ["arp"],
-                    is_reachable=True,
-                    latency_ms=round(latency_ms, 2) if latency_ms is not None else None,
-                    open_ports=open_ports,
-                    subnet_cidr=normalized_cidr,
-                    interface_name=interface_name,
-                )
+            return DiscoveredHostRecord(
+                ip_address=ip_str,
+                mac_address=mac_addr,
+                hostname=hostname,
+                manufacturer=classification.manufacturer,
+                device_type=classification.device_type,
+                confidence_score=classification.confidence_score,
+                confidence_label=classification.confidence_label,
+                classification_reason=classification.reason,
+                discovery_methods=methods or ["arp"],
+                is_reachable=True,
+                latency_ms=round(latency_ms, 2) if latency_ms is not None else None,
+                open_ports=open_ports,
+                subnet_cidr=normalized_cidr,
+                interface_name=interface_name,
             )
+
+        discovered_records: List[DiscoveredHostRecord] = []
+        if sorted_active_ips and not (should_stop_callback and should_stop_callback()):
+            with ThreadPoolExecutor(max_workers=min(self.max_workers, len(sorted_active_ips))) as executor:
+                future_map = {executor.submit(_enrich_active_host, ip): ip for ip in sorted_active_ips}
+                for fut in as_completed(future_map):
+                    if should_stop_callback and should_stop_callback():
+                        break
+                    discovered_records.append(fut.result())
+
+        discovered_records.sort(key=lambda r: tuple(int(p) for p in r.ip_address.split(".")))
 
         if progress_callback:
             progress_callback(100, total_targets, len(discovered_records))

@@ -83,7 +83,7 @@
                   data-ip="{{ iface.ipv4_address }}"
                   data-mask="{{ iface.subnet_mask }}"
                   data-gw="{{ iface.default_gateway|default:'N/A' }}"
-                  data-cidr="{{ iface.network_cidr }}"
+                  data-cidr="{{ iface.recommended_scan_cidr|default:iface.network_cidr }}"
                   data-mac="{{ iface.mac_address|default:'N/A' }}"
                   data-hosts="{{ iface.usable_hosts_count }}"
                   {% if iface.is_primary %}selected{% endif %}>
@@ -98,22 +98,33 @@
       </div>
 
       <div class="col-md-4">
-        <label class="form-label">Target Authorized Subnet (CIDR)</label>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <label class="form-label mb-0">Target Authorized Subnet (CIDR)</label>
+          <div class="d-flex gap-1" style="font-size:.68rem;">
+            <span class="text-muted">Mask:</span>
+            <a href="#" class="text-info text-decoration-none cidr-preset" data-prefix="24">/24</a>
+            <a href="#" class="text-info text-decoration-none cidr-preset" data-prefix="23">/23</a>
+            <a href="#" class="text-info text-decoration-none cidr-preset" data-prefix="22">/22</a>
+            <a href="#" class="text-info text-decoration-none cidr-preset" data-prefix="20">/20</a>
+          </div>
+        </div>
         <input type="text" name="target_cidr" id="target-cidr-input"
                class="form-control form-control-sm"
                value="{{ default_cidr }}"
-               placeholder="e.g. 10.0.114.0/24 or 192.168.1.0/24" required />
+               placeholder="e.g. 192.168.1.0/24, 10.0.114.0/23, or 10.0.112.0/22" required />
       </div>
 
       <div class="col-md-4 d-flex gap-2">
-        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill" id="btn-start-scan">
-          <i data-lucide="play" style="width:14px;height:14px;"></i> Start Scan
+        <button type="submit" class="btn btn-sm btn-noc-primary flex-fill" id="btn-start-scan"
+                {% if latest_scan and latest_scan.status == 'running' %}disabled{% endif %}>
+          <i data-lucide="play" style="width:14px;height:14px;"></i>
+          <span id="btn-start-scan-label">{% if latest_scan and latest_scan.status == 'running' %}Scanning...{% else %}Start Scan{% endif %}</span>
         </button>
-        {% if latest_scan and latest_scan.status == 'running' %}
-        <button type="button" class="btn btn-sm btn-outline-danger" id="btn-stop-scan" data-scan-id="{{ latest_scan.id }}">
+        <button type="button" class="btn btn-sm btn-outline-danger flex-fill" id="btn-stop-scan"
+                data-scan-id="{% if latest_scan %}{{ latest_scan.id }}{% endif %}"
+                {% if not latest_scan or latest_scan.status != 'running' %}disabled{% endif %}>
           <i data-lucide="square" style="width:14px;height:14px;"></i> Stop Scan
         </button>
-        {% endif %}
       </div>
     </form>
 
@@ -142,33 +153,35 @@
       </div>
       <div class="col-6 col-md-2">
         <span class="text-muted d-block">Usable Range</span>
-        <span id="info-hosts" class="text-muted">{{ primary_interface.usable_hosts_count }} hosts</span>
+        <span id="info-hosts" class="text-muted">{{ primary_interface.usable_hosts_count }} hosts (supports /24, /23, /22, /20)</span>
       </div>
     </div>
     {% endif %}
 
-    <!-- Latest Scan Status & Progress Bar -->
-    {% if latest_scan %}
-    <div class="mt-3 p-2 rounded" style="background:rgba(255,255,255,.02);border:1px solid var(--noc-border);" id="scan-progress-panel">
+    <!-- Live Scan Status & Progress Bar -->
+    <div class="mt-3 p-2 rounded"
+         style="background:rgba(255,255,255,.02);border:1px solid var(--noc-border);{% if not latest_scan %}display:none;{% endif %}"
+         id="scan-progress-panel">
       <div class="d-flex flex-wrap justify-content-between align-items-center mb-1" style="font-size:.76rem;">
         <div>
-          <strong>Last Scan:</strong> <code>{{ latest_scan.target_cidr }}</code>
-          <span class="badge ms-1 {% if latest_scan.status == 'completed' %}badge-online{% elif latest_scan.status == 'running' %}badge-warning{% else %}badge-offline{% endif %}">
-            {{ latest_scan.get_status_display }}
+          <strong>Scan Target:</strong> <code id="scan-target-cidr">{% if latest_scan %}{{ latest_scan.target_cidr }}{% else %}{{ default_cidr }}{% endif %}</code>
+          <span id="scan-status-badge" class="badge ms-1 {% if latest_scan and latest_scan.status == 'completed' %}badge-online{% elif latest_scan and latest_scan.status == 'running' %}badge-warning{% else %}badge-offline{% endif %}">
+            {% if latest_scan %}{{ latest_scan.get_status_display }}{% else %}Idle{% endif %}
           </span>
+          <span id="scan-progress-text" class="ms-2 text-info fw-semibold">{% if latest_scan %}{{ latest_scan.progress_pct }}%{% else %}0%{% endif %}</span>
         </div>
         <div class="text-muted">
-          Discovered: <strong>{{ latest_scan.discovered_count }}</strong> &nbsp;|&nbsp;
-          New: <strong>{{ latest_scan.new_devices_count }}</strong> &nbsp;|&nbsp;
-          Changes: <strong>{{ latest_scan.changes_detected_count }}</strong> &nbsp;|&nbsp;
-          Duration: <strong>{{ latest_scan.duration_seconds }}s</strong>
+          Scanned: <strong id="scan-hosts-scanned">{% if latest_scan %}{{ latest_scan.total_hosts_scanned }}{% else %}0{% endif %}</strong> &nbsp;|&nbsp;
+          Discovered: <strong id="scan-discovered-count">{% if latest_scan %}{{ latest_scan.discovered_count }}{% else %}0{% endif %}</strong> &nbsp;|&nbsp;
+          New: <strong id="scan-new-count">{% if latest_scan %}{{ latest_scan.new_devices_count }}{% else %}0{% endif %}</strong> &nbsp;|&nbsp;
+          Duration: <strong id="scan-duration">{% if latest_scan %}{{ latest_scan.duration_seconds }}{% else %}0.0{% endif %}s</strong>
         </div>
       </div>
-      <div class="progress" style="height:6px;background:var(--noc-bg);">
-        <div class="progress-bar bg-info" role="progressbar" style="width: {{ latest_scan.progress_pct }}%;"></div>
+      <div class="progress" style="height:7px;background:var(--noc-bg);">
+        <div id="scan-progress-bar" class="progress-bar bg-info progress-bar-striped {% if latest_scan and latest_scan.status == 'running' %}progress-bar-animated{% endif %}"
+             role="progressbar" style="width: {% if latest_scan %}{{ latest_scan.progress_pct }}{% else %}0{% endif %}%;"></div>
       </div>
     </div>
-    {% endif %}
   </div>
 </div>
 
@@ -370,9 +383,26 @@
 
 {% block extra_js %}
 <script>
-  // Update CIDR and local interface summary when interface selector changes
+  const csrfToken = "{{ csrf_token }}";
   const ifaceSelector = document.getElementById("interface-selector");
   const cidrInput = document.getElementById("target-cidr-input");
+  const scanForm = document.getElementById("discovery-scan-form");
+  const btnStart = document.getElementById("btn-start-scan");
+  const btnStartLabel = document.getElementById("btn-start-scan-label");
+  const btnStop = document.getElementById("btn-stop-scan");
+  const progressPanel = document.getElementById("scan-progress-panel");
+  const progressBar = document.getElementById("scan-progress-bar");
+  const progressText = document.getElementById("scan-progress-text");
+  const statusBadge = document.getElementById("scan-status-badge");
+  const targetCidrLabel = document.getElementById("scan-target-cidr");
+  const hostsScannedEl = document.getElementById("scan-hosts-scanned");
+  const discoveredCountEl = document.getElementById("scan-discovered-count");
+  const newCountEl = document.getElementById("scan-new-count");
+  const durationEl = document.getElementById("scan-duration");
+
+  let activePollTimer = null;
+
+  // Update CIDR and local interface summary when interface selector changes
   if (ifaceSelector) {
     ifaceSelector.addEventListener("change", function () {
       const opt = ifaceSelector.options[ifaceSelector.selectedIndex];
@@ -384,9 +414,152 @@
       setEl("info-gateway", opt.dataset.gw);
       setEl("info-cidr", opt.dataset.cidr);
       setEl("info-mac", opt.dataset.mac);
-      setEl("info-hosts", (opt.dataset.hosts || "0") + " hosts");
+      setEl("info-hosts", (opt.dataset.hosts || "0") + " hosts (supports /24, /23, /22, /20)");
     });
   }
+
+  // Subnet mask quick presets (/24, /23, /22, /20)
+  document.querySelectorAll(".cidr-preset").forEach(link => {
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      const prefix = link.dataset.prefix;
+      if (!cidrInput) return;
+      const baseIp = (cidrInput.value.split("/")[0] || "192.168.1.0").trim();
+      cidrInput.value = `${baseIp}/${prefix}`;
+    });
+  });
+
+  function updateScanUI(scanData) {
+    if (!scanData) return;
+    if (progressPanel) progressPanel.style.display = "block";
+    if (targetCidrLabel) targetCidrLabel.textContent = scanData.target_cidr || "";
+    const pct = scanData.progress_pct || 0;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressText) progressText.textContent = `${pct}%`;
+    if (hostsScannedEl) hostsScannedEl.textContent = scanData.total_hosts_scanned || 0;
+    if (discoveredCountEl) discoveredCountEl.textContent = scanData.discovered_count || 0;
+    if (newCountEl) newCountEl.textContent = scanData.new_devices_count || 0;
+    if (durationEl) durationEl.textContent = `${scanData.duration_seconds || 0}s`;
+
+    const st = (scanData.status || "").toLowerCase();
+    if (statusBadge) {
+      statusBadge.textContent = (scanData.status_display || st).toUpperCase();
+      statusBadge.className = "badge ms-1 " + (
+        st === "completed" ? "badge-online" : (st === "running" || st === "pending" ? "badge-warning" : "badge-offline")
+      );
+    }
+
+    if (st === "running" || st === "pending") {
+      if (btnStart) btnStart.disabled = true;
+      if (btnStartLabel) btnStartLabel.textContent = `Scanning (${pct}%)...`;
+      if (btnStop) {
+        btnStop.disabled = false;
+        btnStop.dataset.scanId = scanData.id;
+      }
+      if (progressBar) progressBar.classList.add("progress-bar-animated");
+    } else {
+      if (btnStart) btnStart.disabled = false;
+      if (btnStartLabel) btnStartLabel.textContent = "Start Scan";
+      if (btnStop) btnStop.disabled = true;
+      if (progressBar) progressBar.classList.remove("progress-bar-animated");
+    }
+  }
+
+  function startPollingScan(scanId) {
+    if (activePollTimer) clearInterval(activePollTimer);
+    activePollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/discovery/scans/${scanId}/status/`);
+        if (!res.ok) return;
+        const data = await res.json();
+        updateScanUI(data);
+        if (data.status === "completed" || data.status === "stopped" || data.status === "failed") {
+          clearInterval(activePollTimer);
+          activePollTimer = null;
+          setTimeout(() => { window.location.reload(); }, 600);
+        }
+      } catch (err) {
+        console.warn("Scan status poll error:", err);
+      }
+    }, 500);
+  }
+
+  // Launch non-blocking background scan when Start Scan is clicked
+  if (scanForm) {
+    scanForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const targetCidr = cidrInput ? cidrInput.value.trim() : "";
+      const ifaceName = ifaceSelector ? ifaceSelector.value : "";
+      if (!targetCidr) return;
+
+      if (btnStart) btnStart.disabled = true;
+      if (btnStartLabel) btnStartLabel.textContent = "Starting Scan...";
+      if (progressPanel) progressPanel.style.display = "block";
+      if (progressBar) {
+        progressBar.style.width = "5%";
+        progressBar.classList.add("progress-bar-animated");
+      }
+
+      try {
+        const res = await fetch("/api/discovery/scans/start/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken,
+          },
+          body: JSON.stringify({
+            target_cidr: targetCidr,
+            interface_name: ifaceName,
+            run_async: true,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || "Failed to start discovery scan.");
+          if (btnStart) btnStart.disabled = false;
+          if (btnStartLabel) btnStartLabel.textContent = "Start Scan";
+          return;
+        }
+        updateScanUI(data);
+        startPollingScan(data.id);
+      } catch (err) {
+        // Fallback to standard form submit if fetch fails
+        scanForm.submit();
+      }
+    });
+  }
+
+  // Stop Scan button handler
+  if (btnStop) {
+    btnStop.addEventListener("click", async function () {
+      const scanId = btnStop.dataset.scanId;
+      if (!scanId) return;
+      btnStop.disabled = true;
+      btnStop.textContent = "Stopping...";
+      try {
+        const res = await fetch(`/api/discovery/scans/${scanId}/stop/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          updateScanUI(data);
+          if (activePollTimer) clearInterval(activePollTimer);
+          setTimeout(() => { window.location.reload(); }, 500);
+        }
+      } catch (err) {
+        console.warn("Stop scan error:", err);
+      }
+    });
+  }
+
+  // Resume polling automatically if page loaded while a scan is running
+  {% if latest_scan and latest_scan.status == 'running' %}
+  startPollingScan({{ latest_scan.id }});
+  {% endif %}
 
   // Select All Checkbox handler
   const selectAllBox = document.getElementById("select-all-discovered");

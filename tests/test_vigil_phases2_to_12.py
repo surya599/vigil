@@ -83,11 +83,19 @@ class TestVigilPhase2InterfaceDetection:
         assert "mac_address" in first
 
     def test_validate_authorized_cidr_blocks_public_ranges(self):
-        """Strictly blocks public IP ranges and oversized subnets while allowing RFC 1918."""
+        """Strictly blocks public IP ranges and oversized subnets while allowing RFC 1918 (/24, /23, /22, /20)."""
         ok, msg, info = NetworkInterfaceDetector.validate_authorized_cidr("192.168.1.0/24")
         assert ok is True
         assert info["network_cidr"] == "192.168.1.0/24"
         assert info["usable_hosts_count"] == 254
+
+        ok23, _, info23 = NetworkInterfaceDetector.validate_authorized_cidr("10.0.114.0/23")
+        assert ok23 is True
+        assert info23["usable_hosts_count"] == 510
+
+        ok22, _, info22 = NetworkInterfaceDetector.validate_authorized_cidr("10.0.112.0/22")
+        assert ok22 is True
+        assert info22["usable_hosts_count"] == 1022
 
         pub_ok, pub_msg, _ = NetworkInterfaceDetector.validate_authorized_cidr("8.8.8.0/24")
         assert pub_ok is False
@@ -298,10 +306,11 @@ class TestVigilPhase5And6InventoryAndChangeDetection:
             is_reachable=True,
         )
 
-        # 1. Render /discovery/ UI page and test POST start_scan without Redis running
+        # 1. Render /discovery/ UI page and verify Stop Scan button + POST start_scan
         page_res = client.get(reverse("devices:discovery"))
         assert page_res.status_code == 200
         assert b"Network Discovery" in page_res.content
+        assert b"btn-stop-scan" in page_res.content
         assert b"10.50.0.25" in page_res.content
 
         post_scan_res = client.post(
@@ -312,6 +321,12 @@ class TestVigilPhase5And6InventoryAndChangeDetection:
         latest_scan = DiscoveryScan.objects.filter(target_cidr="127.0.0.1/32").first()
         assert latest_scan is not None
         assert latest_scan.status == DiscoveryScan.Status.COMPLETED
+
+        # Verify Stop Scan API endpoint transitions scan to STOPPED
+        stop_res = client.post(f"/api/discovery/scans/{latest_scan.id}/stop/")
+        assert stop_res.status_code == 200
+        latest_scan.refresh_from_db()
+        assert latest_scan.status == DiscoveryScan.Status.STOPPED
 
         # 2. Classify device as Trusted & manual device_type override
         cls_res = client.post(

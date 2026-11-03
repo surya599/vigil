@@ -2,10 +2,12 @@
 VIGIL Phases 2, 3, 4, 5 & 6: Network Discovery, Interface Detection,
 Device Registration & Inventory Change Detection Views and REST APIs.
 """
+import threading
 import time
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
+from django.db import close_old_connections
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -16,7 +18,7 @@ from rest_framework.response import Response
 
 from accounts.models import AuditLog
 from accounts.permissions import IsOperatorOrReadOnly
-from .discovery import NetworkDiscoveryEngine
+from .discovery import ACTIVE_SCAN_STOP_FLAGS, NetworkDiscoveryEngine
 from .models import Device, DiscoveredDevice, DiscoveryScan, NetworkChangeEvent
 from .network_interfaces import NetworkInterfaceDetector
 from .serializers import (
@@ -57,14 +59,18 @@ def execute_discovery_scan_sync(
     scan.save(update_fields=["status", "progress_pct"])
 
     stop_cache_key = f"vigil:scan_stop:{scan.id}"
+    ACTIVE_SCAN_STOP_FLAGS.discard(scan.id)
 
     def _on_progress(pct: int, scanned: int, found: int):
         scan.progress_pct = pct
         scan.total_hosts_scanned = scanned
-        scan.save(update_fields=["progress_pct", "total_hosts_scanned"])
+        if found:
+            scan.discovered_count = found
+        scan.duration_seconds = round(time.monotonic() - start_ts, 2)
+        scan.save(update_fields=["progress_pct", "total_hosts_scanned", "discovered_count", "duration_seconds"])
 
     def _should_stop() -> bool:
-        return bool(cache.get(stop_cache_key))
+        return (scan.id in ACTIVE_SCAN_STOP_FLAGS) or bool(cache.get(stop_cache_key))
 
     try:
         engine = NetworkDiscoveryEngine(
@@ -101,6 +107,7 @@ def execute_discovery_scan_sync(
         scan.status = DiscoveryScan.Status.FAILED
         scan.error_message = str(exc)
     finally:
+        ACTIVE_SCAN_STOP_FLAGS.discard(scan.id)
         scan.completed_at = timezone.now()
         scan.duration_seconds = round(time.monotonic() - start_ts, 2)
         scan.save()
@@ -110,6 +117,26 @@ def execute_discovery_scan_sync(
         broadcast_discovery_event(scan)
 
     return scan
+
+
+def launch_discovery_scan_background(scan_id: int, host_ips_override=None):
+    """
+    Launches `execute_discovery_scan_sync` in a non-blocking daemon thread so
+    large subnet scans (/24, /23, /22, /20) return immediately to the browser UI
+    and allow real-time progress polling and instant Stop Scan cancellation.
+    """
+    def _runner():
+        close_old_connections()
+        try:
+            scan_obj = DiscoveryScan.objects.filter(pk=scan_id).first()
+            if scan_obj:
+                execute_discovery_scan_sync(scan_obj, host_ips_override=host_ips_override)
+        finally:
+            close_old_connections()
+
+    worker = threading.Thread(target=_runner, name=f"vigil-scan-{scan_id}", daemon=True)
+    worker.start()
+    return worker
 
 
 class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
@@ -236,12 +263,22 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
             scan_id = request.POST.get("scan_id")
             if scan_id and str(scan_id).isdigit():
                 scan = get_object_or_404(DiscoveryScan, pk=int(scan_id))
+                ACTIVE_SCAN_STOP_FLAGS.add(scan.id)
                 cache.set(f"vigil:scan_stop:{scan.id}", True, timeout=120)
                 scan.status = DiscoveryScan.Status.STOPPED
                 scan.completed_at = timezone.now()
                 scan.save(update_fields=["status", "completed_at"])
                 _log_audit(request.user, "stop_discovery_scan", "DiscoveryScan", scan.target_cidr, "", request)
                 messages.info(request, f"Stopped discovery scan #{scan.id} ({scan.target_cidr}).")
+            else:
+                running_scans = DiscoveryScan.objects.filter(status__in=["pending", "running"])
+                for rs in running_scans:
+                    ACTIVE_SCAN_STOP_FLAGS.add(rs.id)
+                    cache.set(f"vigil:scan_stop:{rs.id}", True, timeout=120)
+                    rs.status = DiscoveryScan.Status.STOPPED
+                    rs.completed_at = timezone.now()
+                    rs.save(update_fields=["status", "completed_at"])
+                messages.info(request, "Stopped active discovery scan(s).")
 
         elif action_type == "register_selected":
             device_ids = request.POST.getlist("discovered_ids")
@@ -333,10 +370,12 @@ def start_discovery_scan_api(request):
     """
     POST /api/discovery/scans/start/
     Validates target CIDR, creates a DiscoveryScan, and dispatches the scan task.
+    Supports `run_async: true` to run non-blockingly in a background thread for live UI polling.
     """
-    cidr = request.data.get("target_cidr", "")
+    cidr = request.data.get("target_cidr") or request.data.get("cidr") or ""
     iface_name = request.data.get("interface_name", "")
     host_ips = request.data.get("host_ips")
+    run_async = bool(request.data.get("run_async", False))
 
     is_valid, message, info = NetworkInterfaceDetector.validate_authorized_cidr(cidr)
     if not is_valid or not info:
@@ -345,17 +384,21 @@ def start_discovery_scan_api(request):
     scan = DiscoveryScan.objects.create(
         interface_name=iface_name,
         target_cidr=info["network_cidr"],
-        status=DiscoveryScan.Status.PENDING,
+        status=DiscoveryScan.Status.RUNNING if run_async else DiscoveryScan.Status.PENDING,
+        progress_pct=5 if run_async else 0,
         started_by=request.user,
     )
     _log_audit(request.user, "api_start_discovery_scan", "DiscoveryScan", scan.target_cidr, f"Interface: {iface_name}", request)
 
-    from monitoring.tasks import task_run_network_discovery
-    try:
-        task_run_network_discovery.delay(scan.id, host_ips_override=host_ips)
-    except Exception:
-        execute_discovery_scan_sync(scan, host_ips_override=host_ips)
-    scan.refresh_from_db()
+    if run_async:
+        launch_discovery_scan_background(scan.id, host_ips_override=host_ips)
+    else:
+        from monitoring.tasks import task_run_network_discovery
+        try:
+            task_run_network_discovery.delay(scan.id, host_ips_override=host_ips)
+        except Exception:
+            execute_discovery_scan_sync(scan, host_ips_override=host_ips)
+        scan.refresh_from_db()
 
     return Response(DiscoveryScanSerializer(scan).data, status=status.HTTP_201_CREATED)
 
@@ -365,6 +408,7 @@ def start_discovery_scan_api(request):
 def stop_discovery_scan_api(request, pk: int):
     """POST /api/discovery/scans/<pk>/stop/"""
     scan = get_object_or_404(DiscoveryScan, pk=pk)
+    ACTIVE_SCAN_STOP_FLAGS.add(scan.id)
     cache.set(f"vigil:scan_stop:{scan.id}", True, timeout=120)
     scan.status = DiscoveryScan.Status.STOPPED
     scan.completed_at = timezone.now()

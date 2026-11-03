@@ -93,6 +93,9 @@ OUI_VENDOR_DATABASE: Dict[str, Tuple[str, Optional[str]]] = {
     "B8:27:EB": ("Raspberry Pi Foundation", "appliance"),
     "DC:A6:32": ("Raspberry Pi Trading", "appliance"),
     "E4:5F:01": ("Raspberry Pi Trading", "appliance"),
+    "54:47:E8": ("Huawei / Broadband ONT", "router"),
+    "48:68:4A": ("Liteon / MediaTek Wireless", "laptop"),
+    "44:46:87": ("Xiaomi / Mobile Wireless", "mobile"),
 }
 
 
@@ -175,6 +178,7 @@ class DeviceIdentificationEngine:
         sys_object_id: Optional[str] = None,
         open_ports: Optional[List[int]] = None,
         is_gateway: bool = False,
+        is_local_host: bool = False,
     ) -> DeviceClassificationResult:
         """
         Evaluates all available telemetry signals to determine manufacturer,
@@ -292,6 +296,13 @@ class DeviceIdentificationEngine:
             if device_type in ("unknown", "server"):
                 device_type = "router"
             reasons.append("Default subnet gateway")
+
+        # 7. Local VIGIL Host Heuristic
+        if is_local_host:
+            score += 40
+            if device_type == "unknown":
+                device_type = "laptop"
+            reasons.append("Local VIGIL host interface")
 
         # Cap confidence score
         if device_type == "unknown":

@@ -35,8 +35,8 @@ DEFAULT_AUTHORIZED_SUPERNETS = [
     ipaddress.ip_network("127.0.0.0/8"),
 ]
 
-# Maximum hosts allowed in a single discovery scan subnet (default: /22 = 1022 hosts)
-DEFAULT_MAX_SCAN_HOSTS = 1024
+# Maximum hosts allowed in a single discovery scan subnet (default: /20 = 4094 hosts, covering /24, /23, /22, /21, /20)
+DEFAULT_MAX_SCAN_HOSTS = 4096
 
 
 @dataclass
@@ -57,6 +57,7 @@ class DetectedNetworkInterface:
     usable_hosts_count: int = 0
     first_host: Optional[str] = None
     last_host: Optional[str] = None
+    recommended_scan_cidr: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -234,6 +235,9 @@ class NetworkInterfaceDetector:
                             gw = calc["first_host"]
 
                         is_primary = (ip_str == primary_ip)
+                        rec_cidr = calc["network_cidr"]
+                        if calc["prefix_len"] < 20:
+                            rec_cidr = str(ipaddress.ip_network(f"{ip_str}/24", strict=False))
                         detected.append(
                             DetectedNetworkInterface(
                                 name=iface_name,
@@ -251,6 +255,7 @@ class NetworkInterfaceDetector:
                                 usable_hosts_count=calc["usable_hosts_count"],
                                 first_host=calc["first_host"],
                                 last_host=calc["last_host"],
+                                recommended_scan_cidr=rec_cidr,
                             )
                         )
         else:
