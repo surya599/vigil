@@ -296,6 +296,35 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
             _log_audit(request.user, "register_discovered_devices", "DiscoveredDevice", f"{registered} devices", f"IDs: {device_ids}", request)
             messages.success(request, f"Registered {registered} discovered device(s) into continuous monitoring.")
 
+        elif action_type == "delete_selected":
+            device_ids = [int(i) for i in request.POST.getlist("discovered_ids") if str(i).isdigit()]
+            if not device_ids:
+                messages.warning(request, "No discovered devices were selected for removal.")
+                return redirect("devices:discovery")
+
+            qs = DiscoveredDevice.objects.filter(pk__in=device_ids)
+            deleted_count = qs.count()
+            qs.delete()
+            _log_audit(request.user, "delete_discovered_devices", "DiscoveredDevice", f"{deleted_count} devices", f"IDs: {device_ids}", request)
+            messages.success(request, f"Removed {deleted_count} selected device(s) from Discovered Network Inventory.")
+
+        elif action_type == "delete_single":
+            disc_id = request.POST.get("discovered_id")
+            if disc_id and str(disc_id).isdigit():
+                d_dev = DiscoveredDevice.objects.filter(pk=int(disc_id)).first()
+                if d_dev:
+                    ip_addr = d_dev.ip_address
+                    d_dev.delete()
+                    _log_audit(request.user, "delete_discovered_device", "DiscoveredDevice", ip_addr, f"ID: {disc_id}", request)
+                    messages.success(request, f"Removed {ip_addr} from Discovered Network Inventory.")
+
+        elif action_type == "clear_all_discovered":
+            total_count = DiscoveredDevice.objects.count()
+            DiscoveredDevice.objects.all().delete()
+            NetworkChangeEvent.objects.all().delete()
+            _log_audit(request.user, "clear_discovered_inventory", "DiscoveredDevice", f"{total_count} devices", "Cleared all discovered inventory", request)
+            messages.success(request, f"Cleared all {total_count} device(s) from Discovered Network Inventory.")
+
         elif action_type == "update_device":
             disc_id = request.POST.get("discovered_id")
             new_trust = request.POST.get("trust_status")

@@ -222,17 +222,27 @@
 
   <form method="post" id="bulk-register-form">
     {% csrf_token %}
-    <input type="hidden" name="action" value="register_selected" />
-    <div class="p-2 d-flex justify-content-between align-items-center" style="border-bottom:1px solid var(--noc-border);background:rgba(255,255,255,.015);">
+    <input type="hidden" name="discovered_id" id="single-delete-id" value="" />
+    <div class="p-2 d-flex flex-wrap justify-content-between align-items-center gap-2" style="border-bottom:1px solid var(--noc-border);background:rgba(255,255,255,.015);">
       <div class="form-check ms-2">
         <input type="checkbox" class="form-check-input" id="select-all-discovered" />
         <label class="form-check-label text-muted" for="select-all-discovered" style="font-size:.76rem;">
           Select All Visible Hosts
         </label>
       </div>
-      <button type="submit" class="btn btn-sm btn-noc-primary" style="font-size:.76rem;">
-        <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> Add Selected Devices to Monitoring
-      </button>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button type="submit" name="action" value="register_selected" class="btn btn-sm btn-noc-primary" style="font-size:.76rem;">
+          <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> Add Selected to Monitoring
+        </button>
+        <button type="submit" name="action" value="delete_selected" class="btn btn-sm btn-outline-danger" style="font-size:.76rem;"
+                onclick="return confirm('Remove the selected device(s) from Discovered Network Inventory?');">
+          <i data-lucide="trash-2" style="width:13px;height:13px;"></i> Remove Selected
+        </button>
+        <button type="submit" name="action" value="clear_all_discovered" class="btn btn-sm btn-outline-secondary" style="font-size:.76rem;"
+                onclick="return confirm('Clear ALL devices from Discovered Network Inventory? (Your Monitored Devices will remain untouched.)');">
+          <i data-lucide="x-circle" style="width:13px;height:13px;"></i> Clear All Inventory
+        </button>
+      </div>
     </div>
 
     <div class="table-responsive">
@@ -250,6 +260,7 @@
             <th>Confidence</th>
             <th>Trust / State</th>
             <th>Last Seen</th>
+            <th class="text-end">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -299,10 +310,19 @@
               {% endif %}
             </td>
             <td class="text-muted" style="font-size:.73rem;">{{ dev.last_discovered_at|timesince }} ago</td>
+            <td class="text-end">
+              <button type="submit" name="action" value="delete_single"
+                      class="btn btn-sm btn-outline-danger py-0 px-2"
+                      style="font-size:.7rem;"
+                      title="Remove {{ dev.ip_address }} from Discovered Inventory"
+                      onclick="document.getElementById('single-delete-id').value='{{ dev.id }}';">
+                Remove
+              </button>
+            </td>
           </tr>
           {% empty %}
           <tr>
-            <td colspan="11" class="text-center py-4 text-muted">
+            <td colspan="12" class="text-center py-4 text-muted">
               No discovered hosts match the current filter. Select a network interface and click <strong>Start Scan</strong> above.
             </td>
           </tr>
