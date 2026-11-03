@@ -173,19 +173,21 @@ class NetworkDiscoveryEngine:
                 continue
         return open_ports
 
-    def _probe_single_host(self, ip_str: str) -> Tuple[str, bool, Optional[float], List[int]]:
+    def _probe_single_host(self, ip_str: str, probe_ports_on_icmp_fail: bool = False) -> Tuple[str, bool, Optional[float], List[int]]:
         """
         Executes ICMP check (and triggers kernel ARP resolution on local subnet)
-        plus optional TCP port check if ICMP is filtered.
+        plus optional TCP port check.
         """
         ping_res = self.icmp_checker.ping_host(ip_str, count=1, timeout=self.icmp_timeout)
         if ping_res.is_reachable:
             open_ports = self.probe_tcp_ports(ip_str) if self.enable_port_probe else []
             return ip_str, True, ping_res.avg_latency, open_ports
 
-        # Even if ICMP fails (e.g. Windows Firewall blocks echo), check key TCP ports if enabled
-        open_ports = self.probe_tcp_ports(ip_str, ports=(80, 443, 22, 3389, 9100)) if self.enable_port_probe else []
-        return ip_str, bool(open_ports), None, open_ports
+        if probe_ports_on_icmp_fail and self.enable_port_probe:
+            open_ports = self.probe_tcp_ports(ip_str, ports=(80, 443, 22, 3389, 9100))
+            return ip_str, bool(open_ports), None, open_ports
+
+        return ip_str, False, None, []
 
     def scan_subnet(
         self,
@@ -236,9 +238,13 @@ class NetworkDiscoveryEngine:
         # Stage 2: Concurrent ICMP & TCP probing (also populates OS ARP table for ICMP-blocked hosts)
         probe_results: Dict[str, Tuple[bool, Optional[float], List[int]]] = {}
         completed = 0
+        probe_on_fail = total_targets <= 32
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_ip = {executor.submit(self._probe_single_host, ip): ip for ip in target_ips}
+            future_to_ip = {
+                executor.submit(self._probe_single_host, ip, probe_on_fail): ip
+                for ip in target_ips
+            }
             for future in as_completed(future_to_ip):
                 if should_stop_callback and should_stop_callback():
                     break
@@ -282,6 +288,9 @@ class NetworkDiscoveryEngine:
                 methods.append("arp")
 
             icmp_ok, latency_ms, open_ports = probe_results.get(ip_str, (False, None, []))
+            if not icmp_ok and not open_ports and self.enable_port_probe:
+                # Host was discovered via ARP (blocked ICMP); probe its TCP service ports now
+                open_ports = self.probe_tcp_ports(ip_str)
             if icmp_ok and latency_ms is not None:
                 methods.append("icmp")
             elif ip_str in local_ip_map:

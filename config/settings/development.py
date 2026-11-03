@@ -19,9 +19,11 @@ CHANNEL_LAYERS = {
 
 # Celery in Development:
 # Force memory broker and cache+memory backend for dev and testing.
-# These are hard-coded here (NOT via os.environ) so they always override any
-# .env values that point to Redis (which may not be running in dev/test).
+# Also update os.environ so Celery 5 does not prefer .env's CELERY_BROKER_URL /
+# CELERY_RESULT_BACKEND over django.conf.settings when Redis is not running locally.
 CELERY_BROKER_URL = "memory://"
 CELERY_RESULT_BACKEND = "cache+memory://"
+os.environ["CELERY_BROKER_URL"] = CELERY_BROKER_URL
+os.environ["CELERY_RESULT_BACKEND"] = CELERY_RESULT_BACKEND
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_STORE_EAGER_RESULT = True

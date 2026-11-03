@@ -298,11 +298,20 @@ class TestVigilPhase5And6InventoryAndChangeDetection:
             is_reachable=True,
         )
 
-        # 1. Render /discovery/ UI page
+        # 1. Render /discovery/ UI page and test POST start_scan without Redis running
         page_res = client.get(reverse("devices:discovery"))
         assert page_res.status_code == 200
         assert b"Network Discovery" in page_res.content
         assert b"10.50.0.25" in page_res.content
+
+        post_scan_res = client.post(
+            reverse("devices:discovery"),
+            {"action": "start_scan", "target_cidr": "127.0.0.1/32", "interface_name": "Loopback"},
+        )
+        assert post_scan_res.status_code == 302
+        latest_scan = DiscoveryScan.objects.filter(target_cidr="127.0.0.1/32").first()
+        assert latest_scan is not None
+        assert latest_scan.status == DiscoveryScan.Status.COMPLETED
 
         # 2. Classify device as Trusted & manual device_type override
         cls_res = client.post(

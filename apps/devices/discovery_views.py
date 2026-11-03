@@ -43,8 +43,8 @@ def _log_audit(user, action_name: str, target_type: str, target_id: str, details
 def execute_discovery_scan_sync(
     scan: DiscoveryScan,
     host_ips_override=None,
-    max_workers: int = 32,
-    icmp_timeout: float = 0.4,
+    max_workers: int = 64,
+    icmp_timeout: float = 0.25,
     enable_port_probe: bool = True,
 ) -> DiscoveryScan:
     """
@@ -220,12 +220,16 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
             )
             _log_audit(request.user, "start_discovery_scan", "DiscoveryScan", scan.target_cidr, f"Interface: {iface_name}", request)
 
-            # Dispatch via Celery task (runs eagerly in dev/test or async in worker)
+            # Dispatch via Celery task (falls back to synchronous execution if Redis broker is offline)
             from monitoring.tasks import task_run_network_discovery
-            task_run_network_discovery.delay(scan.id)
+            try:
+                task_run_network_discovery.delay(scan.id)
+            except Exception:
+                execute_discovery_scan_sync(scan)
+            scan.refresh_from_db()
             messages.success(
                 request,
-                f"Discovery scan completed for {scan.target_cidr}: found {scan.discovered_count} device(s).",
+                f"Discovery scan completed for {scan.target_cidr}: found {scan.discovered_count} device(s) ({scan.new_devices_count} new).",
             )
 
         elif action_type == "stop_scan":
@@ -347,7 +351,10 @@ def start_discovery_scan_api(request):
     _log_audit(request.user, "api_start_discovery_scan", "DiscoveryScan", scan.target_cidr, f"Interface: {iface_name}", request)
 
     from monitoring.tasks import task_run_network_discovery
-    task_run_network_discovery.delay(scan.id, host_ips_override=host_ips)
+    try:
+        task_run_network_discovery.delay(scan.id, host_ips_override=host_ips)
+    except Exception:
+        execute_discovery_scan_sync(scan, host_ips_override=host_ips)
     scan.refresh_from_db()
 
     return Response(DiscoveryScanSerializer(scan).data, status=status.HTTP_201_CREATED)
