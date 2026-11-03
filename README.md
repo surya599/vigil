@@ -1,6 +1,9 @@
-# NetPulse – Real-Time Network Monitoring and Management System
+# VIGIL – Intelligent Network Discovery, Monitoring and Infrastructure Intelligence Platform
 
-NetPulse is a full-stack, enterprise-grade Network Operations Center (NOC) and network device monitoring system built with Python, Django, Django REST Framework, Django Channels, PostgreSQL, Celery, and Redis. It provides real-time availability tracking, latency and packet loss metrics, SNMPv2c/v3 telemetry, dynamic traffic analytics with Chart.js, interactive network topology mapping, and an automated incident alert engine.
+> **Network Intelligence Platform** &mdash; *See Everything. Miss Nothing.*
+> Intelligent Network Discovery, Monitoring and Analytics.
+
+**VIGIL** (formerly NetPulse) is a full-stack, enterprise-grade Network Operations Center (NOC), automatic network discovery, and infrastructure intelligence platform built with Python, Django, Django REST Framework, Django Channels, PostgreSQL, Celery, and Redis. Inspired by enterprise platforms such as PRTG Network Monitor, Zabbix, and ManageEngine OpManager, VIGIL provides automatic network discovery, continuous ICMP & SNMPv2c/v3 telemetry, dynamic traffic analytics with Chart.js, interactive network topology mapping, network inventory change detection, and an automated incident alert engine.
 
 ---
 
@@ -100,7 +103,26 @@ NetPulse/
 
 ---
 
-## Phase Implementation Roadmap
+## VIGIL Transformation Roadmap (12 Phases)
+
+| Phase | Description | Status |
+|---|---|---|
+| **VIGIL Phase 1** | **Project inspection, architecture plan & complete VIGIL rebranding** | **COMPLETED** |
+| VIGIL Phase 2 | Automatic network interface & subnet CIDR detection | *Upcoming / Next* |
+| VIGIL Phase 3 | Multi-technique ARP, ICMP & DNS network discovery engine | *Pending* |
+| VIGIL Phase 4 | Device identification, confidence scoring & MAC OUI vendor lookup | *Pending* |
+| VIGIL Phase 5 | Network Discovery dashboard, live scan progress & device onboarding | *Pending* |
+| VIGIL Phase 6 | Network inventory change detection & Unknown/Trusted device workflow | *Pending* |
+| VIGIL Phase 7 | Reliable continuous monitoring & real-time WebSocket dashboard updates | *Pending* |
+| VIGIL Phase 8 | Advanced SNMPv2c/v3 telemetry (CPU, Memory, Errors, Discards, MIB-II) | *Pending* |
+| VIGIL Phase 9 | Confirmed (LLDP/CDP) vs. inferred network topology visualization | *Pending* |
+| VIGIL Phase 10 | Advanced NOC incident alert deduplication, change alerts & analytics | *Pending* |
+| VIGIL Phase 11 | Advanced network utilities (DNS, Traceroute, Port check, Uptime reports) | *Pending* |
+| VIGIL Phase 12 | Production deployment, authorized scan scope guards & security hardening | *Pending* |
+
+---
+
+## Foundation NOC Roadmap (Completed Baseline)
 
 | Phase | Description | Status |
 |---|---|---|

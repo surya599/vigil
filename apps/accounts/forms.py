@@ -6,8 +6,8 @@ from .models import UserProfile
 User = get_user_model()
 
 
-class NetPulseLoginForm(AuthenticationForm):
-    """Styled login form used on the NOC login page."""
+class VigilLoginForm(AuthenticationForm):
+    """Styled login form used on the VIGIL NOC login page."""
 
     username = forms.CharField(
         max_length=150,
@@ -30,6 +30,10 @@ class NetPulseLoginForm(AuthenticationForm):
         ),
     )
     remember_me = forms.BooleanField(required=False, initial=False)
+
+
+# Backward-compatible alias
+NetPulseLoginForm = VigilLoginForm
 
 
 class UserRegistrationForm(UserCreationForm):

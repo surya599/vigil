@@ -1,5 +1,6 @@
 /**
- * NetPulse Real-Time NOC WebSocket Client
+ * VIGIL Real-Time NOC WebSocket Client
+ * Network Intelligence Platform — See Everything. Miss Nothing.
  *
  * Connects to /ws/noc/ via Django Channels, maintains a keepalive heartbeat,
  * automatically reconnects with exponential backoff, and updates NOC stat cards,

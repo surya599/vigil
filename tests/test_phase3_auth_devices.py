@@ -27,7 +27,7 @@ class LoginViewTest(TestCase):
     def test_login_page_get(self):
         response = self.client.get("/login/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "NetPulse")
+        self.assertContains(response, "VIGIL")
 
     def test_login_with_valid_credentials_redirects_to_dashboard(self):
         response = self.client.post("/login/", {

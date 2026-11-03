@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <defs>
+    <linearGradient id="vigilGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="vigilPulse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer Hexagonal Network Shield -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f172a" stroke="url(#vigilGrad)" stroke-width="2.5"/>
+  <!-- Subtle Radar / Visibility Arc -->
+  <path d="M16 24 C24 14, 40 14, 48 24" stroke="#38bdf8" stroke-width="1.75" stroke-linecap="round" stroke-dasharray="3 3" opacity="0.65"/>
+  <!-- Geometric 'V' Network Topology Links -->
+  <path d="M18 22 L32 46 L46 22" stroke="url(#vigilGrad)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24 22 L32 36 L40 22" stroke="url(#vigilPulse)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+  <!-- Network Nodes (Core & Edge) -->
+  <circle cx="18" cy="22" r="3.5" fill="#38bdf8"/>
+  <circle cx="46" cy="22" r="3.5" fill="#38bdf8"/>
+  <circle cx="32" cy="22" r="2.75" fill="#22d3ee"/>
+  <circle cx="32" cy="46" r="4.25" fill="#3fb950" stroke="#0f172a" stroke-width="1.5"/>
+</svg>

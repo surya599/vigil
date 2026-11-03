@@ -7,7 +7,7 @@ from django.views import View
 from django.views.generic import ListView
 from rest_framework import viewsets, permissions
 
-from .forms import NetPulseLoginForm, UserRegistrationForm, UserProfileUpdateForm
+from .forms import VigilLoginForm, NetPulseLoginForm, UserRegistrationForm, UserProfileUpdateForm
 from .models import UserProfile
 from .serializers import UserSerializer, UserProfileSerializer
 from .permissions import AdminRequiredMixin
@@ -48,7 +48,7 @@ class LogoutView(View):
 
     def post(self, request):
         logout(request)
-        messages.info(request, "You have been logged out of NetPulse.")
+        messages.info(request, "You have been logged out of VIGIL.")
         return redirect("accounts:login")
 
     def get(self, request):

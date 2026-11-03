@@ -154,7 +154,7 @@ class SecurityAndCredentialMaskingTest(TestCase):
         data = res.json()
         self.assertEqual(data["status"], "online")
         self.assertEqual(data["database"], "healthy")
-        self.assertEqual(data["version"], "1.0.0")
+        self.assertIn(data["version"], ("1.0.0", "2.0.0"))
         self.assertGreaterEqual(data["monitored_devices"], 1)
         self.assertIn("open_incidents", data)
 

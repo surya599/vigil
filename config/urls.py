@@ -1,5 +1,5 @@
 """
-URL configuration for NetPulse project.
+URL configuration for VIGIL – Network Intelligence Platform.
 """
 from django.contrib import admin
 from django.urls import path, include
@@ -8,6 +8,10 @@ from django.conf.urls.static import static
 from django.shortcuts import redirect
 from django.http import JsonResponse
 from dashboard.views import dashboard_stats
+
+admin.site.site_header = "VIGIL Administration"
+admin.site.site_title = "VIGIL Network Intelligence"
+admin.site.index_title = "Intelligent Network Discovery, Monitoring and Analytics"
 
 
 def health_check(request):
@@ -27,8 +31,12 @@ def health_check(request):
         db_status = f"unhealthy: {str(exc)}"
     return JsonResponse({
         "status": "online" if db_status == "healthy" else "degraded",
-        "service": "NetPulse Network Monitoring System",
-        "version": "1.0.0",
+        "platform": "VIGIL",
+        "category": "Network Intelligence Platform",
+        "tagline": "See Everything. Miss Nothing.",
+        "description": "Intelligent Network Discovery, Monitoring and Analytics.",
+        "service": "VIGIL Network Intelligence Platform",
+        "version": "2.0.0",
         "database": db_status,
         "monitored_devices": device_count,
         "open_incidents": active_alerts,

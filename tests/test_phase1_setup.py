@@ -32,5 +32,6 @@ def test_health_check_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "online"
-    assert data["service"] == "NetPulse Network Monitoring System"
+    assert data["platform"] == "VIGIL"
+    assert data["service"] == "VIGIL Network Intelligence Platform"
     assert data["database"] == "healthy"
