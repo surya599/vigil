@@ -1,102 +1,28 @@
 """
-VIGIL Phase 4: Device Identification, Confidence Scoring & IEEE MAC OUI Vendor Lookup.
+VIGIL Multi-Evidence Device Fingerprinting & IEEE MAC OUI Identification Engine.
 
-Identifies network device manufacturers and classifications (Router, Switch,
-Access Point, Firewall, Server, Printer, Laptop, Desktop, Mobile Phone,
-Network Appliance, or Unknown) using:
-1. IEEE MAC OUI prefix database
-2. SNMP sysObjectID & sysDescr fingerprints
-3. Reverse DNS & hostname nomenclature
-4. Open TCP service port signatures (e.g., 9100/631 Printer, 179 BGP Router)
-5. Subnet default gateway role
+Combines:
+1. Authoritative IEEE MAC Registry (MA-L 24-bit, MA-M 28-bit, MA-S 36-bit) via `IEEEOUIRegistry`
+2. Locally Administered Address (LAA) & MAC randomization bit analysis
+3. Explicit separation of NIC/wireless chipset manufacturers (Intel, MediaTek, Lite-On,
+   AltoBeam, Realtek, Broadcom, Qualcomm) from whole-device brands
+4. Multi-method hostnames (Reverse DNS PTR, DHCP/Router DNS, NetBIOS, mDNS, LLMNR, SNMP)
+5. SNMP `sysObjectID` and `sysDescr` fingerprints
+6. Open TCP service port signatures (9100/631/515 Printer, 179 BGP Router, 3389 RDP, etc.)
+7. Subnet default gateway topology role
 
-Never fabricates device attributes when identification signals are absent.
+Strict Anti-Fabrication Guarantees:
+- Never invents a manufacturer from an IP address.
+- Never claims an OUI vendor for a Locally Administered MAC.
+- Never classifies a device as a Smartphone merely because its MAC vendor is a mobile
+  chipset or mobile OEM without corroborating hostname/mDNS/DHCP/service evidence.
+- Every inferred classification carries an explicit confidence level:
+  High (>= 80), Medium (50-79), Low (1-49), or Unknown (0).
 """
-import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-
-# Curated IEEE MAC OUI Prefix Table (Normalized 'XX:XX:XX' -> (Manufacturer, Default Type Hint))
-OUI_VENDOR_DATABASE: Dict[str, Tuple[str, Optional[str]]] = {
-    # Cisco Systems
-    "00:00:0C": ("Cisco Systems", "router"),
-    "00:1A:2B": ("Cisco Systems", "router"),
-    "00:1B:54": ("Cisco Systems", "switch"),
-    "00:25:9C": ("Cisco-Linksys", "router"),
-    "F8:72:EA": ("Cisco Meraki", "access_point"),
-    "00:18:0A": ("Cisco Meraki", "access_point"),
-    # Arista / Juniper / Extreme
-    "00:1C:73": ("Arista Networks", "switch"),
-    "28:99:3A": ("Arista Networks", "switch"),
-    "00:05:85": ("Juniper Networks", "router"),
-    "2C:6B:F5": ("Juniper Networks", "switch"),
-    # Palo Alto / Fortinet / SonicWall (Firewalls)
-    "00:1B:17": ("Palo Alto Networks", "firewall"),
-    "7C:89:C1": ("Palo Alto Networks", "firewall"),
-    "00:09:0F": ("Fortinet", "firewall"),
-    "90:6C:AC": ("Fortinet", "firewall"),
-    "00:17:C5": ("SonicWall", "firewall"),
-    # Ubiquiti / MikroTik / Aruba / Ruckus / TP-Link / Netgear / D-Link
-    "24:A4:3C": ("Ubiquiti Inc.", "access_point"),
-    "F0:9F:C2": ("Ubiquiti Inc.", "access_point"),
-    "74:83:C2": ("Ubiquiti Inc.", "access_point"),
-    "B8:69:F4": ("MikroTik", "router"),
-    "4C:5E:0C": ("MikroTik", "router"),
-    "D4:CA:6D": ("MikroTik", "router"),
-    "00:0B:86": ("Aruba Networks (HPE)", "access_point"),
-    "94:B4:0F": ("Aruba Networks (HPE)", "access_point"),
-    "50:C7:BF": ("TP-Link Systems", "router"),
-    "E8:DE:27": ("TP-Link Systems", "access_point"),
-    "A0:04:60": ("NETGEAR", "switch"),
-    "20:4E:7F": ("NETGEAR", "router"),
-    # Virtualization & Cloud Hypervisors (Servers)
-    "00:50:56": ("VMware, Inc.", "server"),
-    "00:0C:29": ("VMware, Inc.", "server"),
-    "00:05:69": ("VMware, Inc.", "server"),
-    "00:15:5D": ("Microsoft Hyper-V", "server"),
-    "52:54:00": ("QEMU / KVM Virtual NIC", "server"),
-    "08:00:27": ("Oracle VirtualBox", "server"),
-    # Enterprise Servers & Workstations (Dell, HPE, Supermicro, Lenovo, Intel)
-    "00:14:22": ("Dell Inc.", None),
-    "F8:B1:56": ("Dell Inc.", None),
-    "18:66:DA": ("Dell Inc.", "server"),
-    "3C:D9:2B": ("Hewlett Packard Enterprise", "server"),
-    "94:57:A5": ("Hewlett Packard Enterprise", None),
-    "00:25:90": ("Super Micro Computer", "server"),
-    "AC:1F:6B": ("Super Micro Computer", "server"),
-    "00:21:CC": ("Lenovo", "laptop"),
-    "60:57:18": ("Intel Corporate", None),
-    "A4:BB:6D": ("Intel Corporate", None),
-    # Printers (HP, Brother, Canon, Epson, Xerox, Zebra)
-    "00:01:E6": ("Hewlett-Packard (Print)", "printer"),
-    "00:80:77": ("Brother Industries", "printer"),
-    "30:05:5C": ("Brother Industries", "printer"),
-    "00:1E:8F": ("Canon Inc.", "printer"),
-    "00:26:AB": ("Seiko Epson Corp.", "printer"),
-    "00:00:AA": ("Xerox Corporation", "printer"),
-    # Apple / Samsung / Google / Xiaomi / OnePlus (Mobile & Laptops)
-    "F0:18:98": ("Apple, Inc.", None),
-    "A8:20:66": ("Apple, Inc.", None),
-    "3C:22:FB": ("Apple, Inc.", "laptop"),
-    "28:CF:E9": ("Apple, Inc.", "mobile"),
-    "FC:FC:48": ("Apple, Inc.", None),
-    "00:16:32": ("Samsung Electronics", "mobile"),
-    "5C:3C:27": ("Samsung Electronics", "mobile"),
-    "64:BC:0C": ("LG Electronics", "mobile"),
-    "28:6C:07": ("Xiaomi Communications", "mobile"),
-    "94:65:2D": ("OnePlus Technology", "mobile"),
-    "3C:5A:B4": ("Google, Inc.", "mobile"),
-    # IoT & Network Appliances (Synology, QNAP, Raspberry Pi)
-    "00:11:32": ("Synology Inc.", "appliance"),
-    "24:5E:BE": ("QNAP Systems", "appliance"),
-    "B8:27:EB": ("Raspberry Pi Foundation", "appliance"),
-    "DC:A6:32": ("Raspberry Pi Trading", "appliance"),
-    "E4:5F:01": ("Raspberry Pi Trading", "appliance"),
-    "54:47:E8": ("Huawei / Broadband ONT", "router"),
-    "48:68:4A": ("Liteon / MediaTek Wireless", "laptop"),
-    "44:46:87": ("Xiaomi / Mobile Wireless", "mobile"),
-}
+from devices.oui_registry import IEEEOUIRegistry, MACVendorLookupResult
 
 
 # SNMP Enterprise sysObjectID Prefixes (1.3.6.1.4.1.<enterprise_id>)
@@ -119,12 +45,18 @@ SNMP_ENTERPRISE_MAP: Dict[str, Tuple[str, str]] = {
 
 @dataclass
 class DeviceClassificationResult:
-    """Encapsulates the result of multi-signal device identification."""
+    """Encapsulates the result of multi-evidence device fingerprinting."""
     device_type: str
-    manufacturer: str
+    manufacturer: str  # Kept for backward compatibility; equals display MAC vendor or SNMP vendor
     confidence_score: int
-    confidence_label: str
+    confidence_label: str  # 'High', 'Medium', 'Low', or 'Unknown'
     reason: str
+    mac_address_type: str = "unknown"  # 'global', 'locally_administered', 'randomized_likely', 'unknown'
+    mac_vendor: str = ""  # Registered IEEE OUI vendor, 'Locally Administered MAC', or 'Unknown Vendor'
+    estimated_brand: str = ""  # Separate whole-device brand when supported by evidence
+    is_chipset_oem: bool = False
+    identification_status: str = "pending"  # 'identified', 'partial', 'pending', 'manual'
+    evidence_items: List[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -132,31 +64,30 @@ class DeviceClassificationResult:
 
 class DeviceIdentificationEngine:
     """
-    Combines MAC OUI vendor lookup, SNMP sysDescr/sysObjectID, hostname patterns,
-    open service ports, and gateway topology role to classify discovered devices
-    with an explicit confidence score (0-100%).
+    Combines authoritative IEEE MAC OUI lookup, LAA/randomization analysis,
+    SNMP sysDescr/sysObjectID, multi-method hostnames, open service ports,
+    and gateway topology role to classify discovered devices with explicit confidence.
     """
 
     @staticmethod
-    def lookup_mac_vendor(mac_address: Optional[str]) -> Tuple[str, Optional[str]]:
-        """
-        Looks up manufacturer name and optional default device_type hint from a MAC address.
-        Returns ("", None) when the MAC is missing or unrecognized (never invents vendors).
-        """
-        if not mac_address:
-            return "", None
-        cleaned = re.sub(r"[^0-9A-Fa-f]", "", mac_address).upper()
-        if len(cleaned) < 6:
-            return "", None
-        oui = f"{cleaned[0:2]}:{cleaned[2:4]}:{cleaned[4:6]}"
-        if oui in OUI_VENDOR_DATABASE:
-            return OUI_VENDOR_DATABASE[oui]
+    def inspect_mac(mac_address: Optional[str]) -> MACVendorLookupResult:
+        """Performs full IEEE MA-L / MA-M / MA-S + LAA lookup via `IEEEOUIRegistry`."""
+        return IEEEOUIRegistry.lookup(mac_address)
 
-        # Check locally administered / randomized MAC bit (bit 1 of first octet)
-        first_octet = int(cleaned[0:2], 16)
-        if first_octet & 0x02:
-            return "Randomized / Private MAC", "mobile"
-        return "", None
+    @classmethod
+    def lookup_mac_vendor(cls, mac_address: Optional[str]) -> Tuple[str, Optional[str]]:
+        """
+        Backward-compatible helper returning `(vendor_or_status, optional_infra_type_hint)`.
+        Never fabricates vendors or assumes 'mobile' for randomized/mobile-OUI MACs.
+        """
+        res = cls.inspect_mac(mac_address)
+        if not res.is_valid:
+            return "", None
+        if res.mac_address_type in ("locally_administered", "randomized_likely"):
+            return res.display_vendor, res.default_type_hint
+        if res.registered_vendor == "Unknown Vendor":
+            return "", None
+        return res.registered_vendor, res.default_type_hint
 
     @staticmethod
     def _confidence_label(score: int) -> str:
@@ -166,7 +97,98 @@ class DeviceIdentificationEngine:
             return "Medium"
         if score > 0:
             return "Low"
-        return "Unverified"
+        return "Unknown"
+
+    @staticmethod
+    def _infer_from_hostname(hostname: str) -> Tuple[Optional[str], Optional[str], str]:
+        """
+        Extracts `(device_type, brand_hint, reason_note)` from a resolved hostname
+        (PTR, NetBIOS, mDNS, LLMNR, DHCP, or SNMP sysName).
+        """
+        hn = hostname.lower().strip()
+        if not hn:
+            return None, None, ""
+
+        # Brand extraction from hostname tokens
+        brand_hint: Optional[str] = None
+        brand_patterns = (
+            (("macbook", "imac", "mac-mini", "macpro", "iphone", "ipad", "apple-tv", "airpods"), "Apple"),
+            (("galaxy", "sm-s", "sm-g", "sm-a", "samsung", "-s-a1", "-s-a2", "-s-a3", "-s-a5", "-s-s2", "-s-m1", "-s-m3"), "Samsung"),
+            (("pixel-", "chromecast", "nest-", "google-home"), "Google"),
+            (("realme", "rmx"), "Realme"),
+            (("oppo", "cph"), "OPPO"),
+            (("vivo",), "vivo"),
+            (("redmi", "xiaomi", "poco", "mi-"), "Xiaomi"),
+            (("oneplus",), "OnePlus"),
+            (("thinkpad", "ideapad", "legion", "lenovo"), "Lenovo"),
+            (("latitude", "optiplex", "xps", "inspiron", "alienware", "poweredge"), "Dell"),
+            (("elitebook", "probook", "pavilion", "laserjet", "officejet", "deskjet", "hp-"), "HP"),
+            (("brother", "brw", "brn"), "Brother"),
+            (("epson",), "Epson"),
+            (("canon",), "Canon"),
+            (("synology", "diskstation", "rackstation"), "Synology"),
+            (("qnap",), "QNAP"),
+            (("mikrotik", "routeros"), "MikroTik"),
+            (("unifi", "ubnt", "edgerouter", "edgeswitch"), "Ubiquiti"),
+            (("fortigate", "forti"), "Fortinet"),
+            (("paloalto",), "Palo Alto Networks"),
+            (("syrotech", "rtk_gw", "rtk-gw"), "Syrotech"),
+        )
+        for tokens, b_name in brand_patterns:
+            if any(t in hn for t in tokens):
+                brand_hint = b_name
+                break
+
+        # Category classification from hostname nomenclature
+        if any(k in hn for k in ("fw", "firewall", "paloalto", "fortigate", "forti", "opnsense", "pfsense")):
+            return "firewall", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("core-rtr", "router", "gw", "gateway", "rtr", "mikrotik", "edgerouter", "syrotech", "ont", "rtk_gw")):
+            return "router", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("sw-", "switch", "dist-", "access-sw", "arista", "edgeswitch", "procurve", "catalyst")):
+            return "switch", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("ap-", "wifi-ap", "wlan-ap", "unifi-ap", "aironet", "access-point")):
+            return "access_point", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("prn", "print", "laserjet", "officejet", "deskjet", "brother", "brw", "canon", "epson", "np")):
+            return "printer", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("ipad", "galaxy-tab", "sm-t", "sm-x", "tablet", "surface-go")):
+            return "tablet", brand_hint, f"Hostname pattern ({hostname})"
+        if any(
+            k in hn
+            for k in (
+                "iphone",
+                "android",
+                "galaxy",
+                "sm-s",
+                "sm-g",
+                "sm-a",
+                "pixel",
+                "oneplus",
+                "realme",
+                "rmx",
+                "oppo",
+                "vivo",
+                "redmi",
+                "poco",
+                "-s-a1",
+                "-s-a2",
+                "-s-a3",
+                "-s-a5",
+                "-s-s2",
+            )
+        ):
+            return "smartphone", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("macbook", "laptop", "thinkpad", "ideapad", "latitude", "elitebook", "probook", "xps", "-nb", "notebook")):
+            return "laptop", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("desktop-", "workstation", "imac", "mac-mini", "optiplex", "inspiron", "-pc", "win11", "win10")):
+            return "desktop", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("srv", "server", "prod-", "db-", "sql", "k8s", "node", "esxi", "pve", "proxmox", "ubuntu-srv")):
+            return "server", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("nas", "synology", "diskstation", "qnap", "truenas", "netapp")):
+            return "appliance", brand_hint, f"Hostname pattern ({hostname})"
+        if any(k in hn for k in ("cam", "camera", "nvr", "dvr", "iot", "esp32", "esp8266", "tasmota", "shelly", "chromecast", "echo", "sonos", "hue", "smarttv", "bravia", "webos", "roku", "raspberrypi")):
+            return "iot", brand_hint, f"Hostname pattern ({hostname})"
+
+        return None, brand_hint, f"Hostname resolved ({hostname})"
 
     @classmethod
     def identify_device(
@@ -174,6 +196,8 @@ class DeviceIdentificationEngine:
         ip_address: str,
         mac_address: Optional[str] = None,
         hostname: Optional[str] = None,
+        hostname_source: str = "",
+        all_hostnames: Optional[Dict[str, str]] = None,
         sys_description: Optional[str] = None,
         sys_object_id: Optional[str] = None,
         open_ports: Optional[List[int]] = None,
@@ -181,37 +205,62 @@ class DeviceIdentificationEngine:
         is_local_host: bool = False,
     ) -> DeviceClassificationResult:
         """
-        Evaluates all available telemetry signals to determine manufacturer,
-        device_type, confidence_score (0-100), and human-readable evidence reason.
+        Evaluates all available telemetry signals to determine:
+        - `mac_vendor` (Registered IEEE OUI/MA-M/MA-S vendor or LAA status)
+        - `mac_address_type` (`global`, `locally_administered`, `randomized_likely`, `unknown`)
+        - `estimated_brand` (Device brand separated from NIC/chipset vendor)
+        - `device_type`
+        - `confidence_score` (0-100) and `confidence_label` (`High`, `Medium`, `Low`, `Unknown`)
+        - `identification_status` (`identified`, `partial`, `pending`)
         """
-        manufacturer = ""
+        mac_info = cls.inspect_mac(mac_address)
+        mac_address_type = mac_info.mac_address_type
+        mac_vendor = mac_info.display_vendor if mac_info.is_valid else ""
+        estimated_brand = mac_info.estimated_brand
+        is_chipset_oem = mac_info.is_chipset_oem
+
         device_type = "unknown"
         score = 0
         reasons: List[str] = []
         ports = set(open_ports or [])
 
-        # 1. MAC OUI Vendor Lookup
-        mac_vendor, mac_type_hint = cls.lookup_mac_vendor(mac_address)
-        if mac_vendor:
-            manufacturer = mac_vendor
-            score += 35
-            reasons.append(f"MAC OUI ({manufacturer})")
-            if mac_type_hint:
-                device_type = mac_type_hint
+        # 1. Evaluate MAC Address & IEEE OUI Registry Evidence
+        if mac_info.is_valid:
+            if mac_info.mac_address_type == "global":
+                if mac_info.registered_vendor != "Unknown Vendor":
+                    score += 30
+                    if mac_info.is_chipset_oem:
+                        reasons.append(f"IEEE {mac_info.registry_block} NIC/Chipset OUI ({mac_info.registered_vendor})")
+                    else:
+                        reasons.append(f"IEEE {mac_info.registry_block} Vendor ({mac_info.registered_vendor})")
+                    if mac_info.default_type_hint:
+                        device_type = mac_info.default_type_hint
+                        score += 20
+                else:
+                    reasons.append(f"Unregistered Global OUI ({mac_info.matched_prefix})")
+            elif mac_info.mac_address_type == "randomized_likely":
+                reasons.append("Locally Administered Bit Set — Randomized / Private MAC (likely)")
+            elif mac_info.mac_address_type == "locally_administered":
+                reasons.append(f"Locally Administered MAC ({mac_info.display_vendor})")
+                if mac_info.default_type_hint:
+                    device_type = mac_info.default_type_hint
+                    score += 25
 
-        # 2. SNMP sysObjectID Fingerprint (High-confidence authoritative signal)
+        # 2. SNMP sysObjectID Fingerprint (Authoritative infrastructure signal)
         if sys_object_id:
             oid_str = sys_object_id.strip().lstrip(".")
             for prefix, (snmp_vendor, snmp_type) in SNMP_ENTERPRISE_MAP.items():
                 if oid_str.startswith(prefix):
-                    if not manufacturer or manufacturer == "Randomized / Private MAC":
-                        manufacturer = snmp_vendor
+                    if not estimated_brand:
+                        estimated_brand = snmp_vendor
+                    if not mac_vendor or mac_address_type != "global" or mac_info.registered_vendor == "Unknown Vendor":
+                        mac_vendor = snmp_vendor
                     device_type = snmp_type
                     score += 45
                     reasons.append(f"SNMP sysObjectID ({snmp_vendor})")
                     break
 
-        # 3. SNMP sysDescr Analysis (High-confidence authoritative signal)
+        # 3. SNMP sysDescr Analysis (Authoritative OS/platform signal)
         if sys_description:
             desc_lower = sys_description.lower()
             score += 40
@@ -221,7 +270,7 @@ class DeviceIdentificationEngine:
             elif any(k in desc_lower for k in ("arista", "catalyst", "procurve", "edgeswitch", "nx-os", "eos ")):
                 device_type = "switch"
                 reasons.append("SNMP sysDescr (Switch OS)")
-            elif any(k in desc_lower for k in ("ios xe", "ios-xr", "cisco ios", "routeros", "junos", "vyos", "edgerouter")):
+            elif any(k in desc_lower for k in ("ios xe", "ios-xr", "cisco ios", "routeros", "junos", "vyos", "edgerouter", "gpon", "ont")):
                 device_type = "router"
                 reasons.append("SNMP sysDescr (Router OS)")
             elif any(k in desc_lower for k in ("unifi ap", "aironet", "arubaos", "openwrt", "access point")):
@@ -238,61 +287,63 @@ class DeviceIdentificationEngine:
                     device_type = "server"
                 reasons.append("SNMP sysDescr (Server/Host OS)")
 
-        # 4. Hostname / Reverse DNS Heuristics
+        # 4. Multi-Method Hostname Evidence (PTR, DHCP, NetBIOS, mDNS, LLMNR, SNMP)
+        candidate_names: List[Tuple[str, str]] = []
         if hostname:
-            hn = hostname.lower()
-            score += 20
-            if any(k in hn for k in ("fw", "firewall", "paloalto", "forti")):
-                device_type = "firewall"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("core-rtr", "router", "gw", "gateway", "rtr", "mikrotik")):
-                device_type = "router"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("sw", "switch", "dist-", "access-sw", "arista")):
-                device_type = "switch"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("ap-", "wifi", "wlan", "unifi", "aironet")):
-                device_type = "access_point"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("prn", "print", "laserjet", "brother", "canon", "epson")):
-                device_type = "printer"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("srv", "server", "prod-", "db-", "sql", "k8s", "node", "esxi", "pve")):
-                device_type = "server"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("macbook", "laptop", "thinkpad", "latitude", "xps", "-nb")):
-                device_type = "laptop"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("desktop", "workstation", "imac", "optiplex", "-pc", "win11", "win10")):
-                device_type = "desktop"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("iphone", "ipad", "android", "galaxy", "pixel", "oneplus")):
-                device_type = "mobile"
-                reasons.append(f"Hostname pattern ({hostname})")
-            elif any(k in hn for k in ("nas", "synology", "qnap", "camera", "nvr", "iot")):
-                device_type = "appliance"
-                reasons.append(f"Hostname pattern ({hostname})")
+            candidate_names.append((hostname_source or "dns", hostname))
+        if all_hostnames:
+            for src, hn_val in all_hostnames.items():
+                if hn_val and (src, hn_val) not in candidate_names:
+                    candidate_names.append((src, hn_val))
+
+        if candidate_names:
+            score += 25
+            for src, hn_val in candidate_names:
+                inferred_type, inferred_brand, hn_reason = cls._infer_from_hostname(hn_val)
+                if inferred_brand and not estimated_brand:
+                    estimated_brand = inferred_brand
+                if inferred_type and device_type == "unknown":
+                    device_type = inferred_type
+                    score += 25
+                    reasons.append(f"{hn_reason} via {src.upper()}")
+                    break
+            else:
+                # Hostname resolved (e.g. 'vsbreddy' via NetBIOS/PTR), even if it's a custom personal name
+                primary_src, primary_hn = candidate_names[0]
+                reasons.append(f"Hostname '{primary_hn}' ({primary_src.upper()})")
+                # If NetBIOS resolved a workstation name and NIC is an Intel/Liteon/Realtek PC adapter
+                if (primary_src == "netbios" or "netbios" in (all_hostnames or {})) and device_type == "unknown":
+                    device_type = "laptop" if is_local_host else "desktop"
+                    score += 20
+                    reasons.append("NetBIOS Workstation Service")
 
         # 5. Open TCP Port Signatures
         if ports:
             score += 15
             if ports.intersection({9100, 515, 631}) and device_type in ("unknown", "server"):
                 device_type = "printer"
+                score += 30
                 reasons.append(f"Print service port ({sorted(ports.intersection({9100, 515, 631}))[0]})")
             elif 179 in ports and device_type == "unknown":
                 device_type = "router"
+                score += 25
                 reasons.append("BGP port 179")
-            elif ports.intersection({5432, 3306, 27017, 6379, 80, 443, 22}) and device_type == "unknown":
-                if not is_gateway:
-                    device_type = "server"
-                    reasons.append(f"Server ports ({','.join(str(p) for p in sorted(ports)[:3])})")
             elif 3389 in ports and device_type == "unknown":
                 device_type = "desktop"
+                score += 20
                 reasons.append("RDP port 3389")
+            elif ports.intersection({5432, 3306, 27017, 6379, 22}) and device_type == "unknown":
+                if not is_gateway:
+                    device_type = "server"
+                    score += 20
+                    reasons.append(f"Server ports ({','.join(str(p) for p in sorted(ports)[:3])})")
+            elif ports.intersection({80, 443}) and is_gateway:
+                score += 15
+                reasons.append("Gateway Web Admin UI (80/443)")
 
         # 6. Default Gateway Role Heuristic
         if is_gateway:
-            score += 35
+            score += 40
             if device_type in ("unknown", "server"):
                 device_type = "router"
             reasons.append("Default subnet gateway")
@@ -300,21 +351,39 @@ class DeviceIdentificationEngine:
         # 7. Local VIGIL Host Heuristic
         if is_local_host:
             score += 40
-            if device_type == "unknown":
+            if device_type in ("unknown", "desktop"):
                 device_type = "laptop"
             reasons.append("Local VIGIL host interface")
 
-        # Cap confidence score
+        # 8. Compute Final Confidence Score & Identification Status
+        # Remember: Never classify a device as a smartphone solely from a mobile chipset/OUI or LAA MAC!
         if device_type == "unknown":
-            final_score = min(score, 35)
+            if mac_info.mac_address_type == "global" and mac_info.registered_vendor != "Unknown Vendor":
+                final_score = min(max(score, 25), 45)  # Low confidence: MAC vendor known, device type unknown
+                id_status = "partial"
+            elif candidate_names:
+                final_score = min(max(score, 30), 45)
+                id_status = "partial"
+            else:
+                final_score = 0
+                id_status = "pending"
         else:
-            final_score = min(max(score, 40), 99)
+            final_score = min(max(score, 50), 99)
+            id_status = "identified"
 
-        reason_str = " + ".join(reasons) if reasons else "No identifying MAC OUI, SNMP, hostname, or port telemetry"
+        confidence_label = cls._confidence_label(final_score)
+        reason_str = " + ".join(reasons) if reasons else "Identification pending — no hostname, SNMP, or IEEE OUI match yet"
+
         return DeviceClassificationResult(
             device_type=device_type,
-            manufacturer=manufacturer,
+            manufacturer=mac_vendor,
             confidence_score=final_score,
-            confidence_label=cls._confidence_label(final_score),
+            confidence_label=confidence_label,
             reason=reason_str,
+            mac_address_type=mac_address_type,
+            mac_vendor=mac_vendor,
+            estimated_brand=estimated_brand,
+            is_chipset_oem=is_chipset_oem,
+            identification_status=id_status,
+            evidence_items=reasons,
         )

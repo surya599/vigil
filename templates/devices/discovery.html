@@ -223,6 +223,9 @@
   <form method="post" id="bulk-register-form">
     {% csrf_token %}
     <input type="hidden" name="discovered_id" id="single-delete-id" value="" />
+    <input type="hidden" name="custom_hostname" id="override-hostname-input" value="" />
+    <input type="hidden" name="device_type" id="override-type-input" value="" />
+    <input type="hidden" name="trust_status" id="override-trust-input" value="" />
     <div class="p-2 d-flex flex-wrap justify-content-between align-items-center gap-2" style="border-bottom:1px solid var(--noc-border);background:rgba(255,255,255,.015);">
       <div class="form-check ms-2">
         <input type="checkbox" class="form-check-input" id="select-all-discovered" />
@@ -231,6 +234,10 @@
         </label>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button type="submit" name="action" value="refresh_identification" class="btn btn-sm btn-outline-info" style="font-size:.76rem;"
+                title="Retry multi-method hostname (PTR, DHCP, NetBIOS, mDNS, LLMNR, SNMP) and IEEE OUI vendor identification">
+          <i data-lucide="refresh-cw" style="width:13px;height:13px;"></i> Refresh Identification
+        </button>
         <button type="submit" name="action" value="register_selected" class="btn btn-sm btn-noc-primary" style="font-size:.76rem;">
           <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> Add Selected to Monitoring
         </button>
@@ -253,13 +260,10 @@
             <th>IP Address</th>
             <th>MAC Address</th>
             <th>Hostname</th>
-            <th>Manufacturer</th>
+            <th>Manufacturer / MAC Vendor</th>
             <th>Device Type</th>
-            <th>Discovery Method</th>
-            <th>Reachability</th>
-            <th>Confidence</th>
-            <th>Trust / State</th>
-            <th>Last Seen</th>
+            <th>Identification Confidence</th>
+            <th>Discovery Status</th>
             <th class="text-end">Action</th>
           </tr>
         </thead>
@@ -270,22 +274,58 @@
               <input type="checkbox" name="discovered_ids" value="{{ dev.id }}" class="form-check-input disc-row-check" />
             </td>
             <td><code style="color:var(--noc-accent);">{{ dev.ip_address }}</code></td>
-            <td><code class="text-muted" style="font-size:.74rem;">{{ dev.mac_address|default:"—" }}</code></td>
-            <td class="fw-semibold">{{ dev.hostname|default:"—" }}</td>
-            <td style="color:var(--noc-muted);">{{ dev.manufacturer|default:"Unknown Vendor" }}</td>
+            <td>
+              {% if dev.mac_address %}
+                <code class="text-light" style="font-size:.75rem;">{{ dev.mac_address }}</code>
+                {% if dev.mac_address_type == 'locally_administered' or dev.mac_address_type == 'randomized_likely' %}
+                  <div><span class="badge bg-dark border border-warning text-warning" style="font-size:.63rem;">Locally Administered MAC</span></div>
+                {% elif dev.mac_address_type == 'global' %}
+                  <div><span class="text-muted" style="font-size:.64rem;">IEEE Global MAC</span></div>
+                {% endif %}
+              {% else %}
+                <span class="text-muted" style="font-size:.74rem;">MAC not resolved</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if dev.hostname %}
+                <span class="fw-semibold text-light">{{ dev.hostname }}</span>
+                <div>
+                  {% if dev.hostname_manually_set or dev.hostname_source == 'manual' %}
+                    <span class="badge bg-info text-dark" style="font-size:.62rem;">Manual</span>
+                  {% elif dev.hostname_source and dev.hostname_source != 'none' %}
+                    <span class="badge bg-dark border border-info text-info" style="font-size:.62rem;">{{ dev.get_hostname_source_display }}</span>
+                  {% endif %}
+                </div>
+              {% else %}
+                <span class="text-muted fst-italic" style="font-size:.75rem;">Hostname not resolved</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if dev.mac_address_type == 'randomized_likely' %}
+                <span class="text-warning" style="font-size:.76rem;">Locally Administered MAC</span>
+                <div class="text-muted" style="font-size:.66rem;">Randomized / Private MAC (likely)</div>
+              {% elif dev.mac_address_type == 'locally_administered' %}
+                <span class="text-warning" style="font-size:.76rem;">Locally Administered MAC</span>
+                {% if dev.mac_vendor and dev.mac_vendor != 'Locally Administered MAC' %}
+                  <div class="text-muted" style="font-size:.66rem;">{{ dev.mac_vendor }}</div>
+                {% endif %}
+              {% elif dev.mac_vendor and dev.mac_vendor != 'Unknown Vendor' %}
+                <span class="text-light" style="font-size:.77rem;">{{ dev.mac_vendor }}</span>
+                {% if dev.is_chipset_oem %}
+                  <div class="text-muted" style="font-size:.65rem;">NIC / Wireless Chipset OUI</div>
+                {% elif dev.estimated_brand %}
+                  <div class="text-info" style="font-size:.65rem;">Est. Brand: {{ dev.estimated_brand }}</div>
+                {% endif %}
+              {% elif dev.manufacturer and dev.manufacturer != 'Unknown Vendor' %}
+                <span class="text-light" style="font-size:.77rem;">{{ dev.manufacturer }}</span>
+              {% else %}
+                <span class="text-muted" style="font-size:.75rem;">Unknown Vendor</span>
+              {% endif %}
+            </td>
             <td>
               <span class="badge bg-dark border border-secondary">{{ dev.get_device_type_display }}</span>
-            </td>
-            <td>
-              <span class="text-uppercase" style="font-size:.7rem;color:var(--noc-accent);">{{ dev.discovery_methods }}</span>
-            </td>
-            <td>
-              {% if dev.is_reachable %}
-                <span class="badge rounded-pill badge-online" style="font-size:.68rem;">
-                  ● Reachable {% if dev.latency_ms %}({{ dev.latency_ms|floatformat:1 }}ms){% endif %}
-                </span>
-              {% else %}
-                <span class="badge rounded-pill badge-offline" style="font-size:.68rem;">● Disappeared</span>
+              {% if dev.type_manually_set %}
+                <span class="badge bg-info text-dark ms-1" style="font-size:.62rem;">Manual</span>
               {% endif %}
             </td>
             <td>
@@ -295,22 +335,45 @@
               </span>
             </td>
             <td>
-              {% if dev.is_monitored and dev.monitored_device %}
-                <a href="{% url 'devices:device-detail' dev.monitored_device.pk %}" class="badge rounded-pill badge-online text-decoration-none">
-                  ✓ Monitored
-                </a>
-              {% elif dev.trust_status == 'trusted' %}
-                <span class="badge rounded-pill badge-online">Trusted</span>
-              {% elif dev.trust_status == 'untrusted' %}
-                <span class="badge rounded-pill badge-offline">Untrusted</span>
-              {% elif dev.trust_status == 'ignored' %}
-                <span class="badge rounded-pill badge-unknown">Ignored</span>
-              {% else %}
-                <span class="badge rounded-pill badge-warning">Unknown</span>
-              {% endif %}
+              <div>
+                {% if dev.is_reachable %}
+                  <span class="badge rounded-pill badge-online" style="font-size:.66rem;">
+                    ● Reachable {% if dev.latency_ms %}({{ dev.latency_ms|floatformat:1 }}ms){% endif %}
+                  </span>
+                {% else %}
+                  <span class="badge rounded-pill badge-offline" style="font-size:.66rem;">● Disappeared</span>
+                {% endif %}
+                {% if dev.is_monitored and dev.monitored_device %}
+                  <a href="{% url 'devices:device-detail' dev.monitored_device.pk %}" class="badge rounded-pill badge-online text-decoration-none" style="font-size:.65rem;">
+                    ✓ Monitored
+                  </a>
+                {% endif %}
+              </div>
+              <div class="mt-1 text-muted" style="font-size:.66rem;">
+                {% if dev.identification_status == 'identified' or dev.identification_status == 'manual' %}
+                  <span class="text-success">{{ dev.get_identification_status_display }}</span>
+                {% elif dev.identification_status == 'partial' %}
+                  <span class="text-info">Partial Identification</span>
+                {% else %}
+                  <span class="text-warning">Identification Pending</span>
+                {% endif %}
+                &middot; {{ dev.last_discovered_at|timesince }} ago
+              </div>
             </td>
-            <td class="text-muted" style="font-size:.73rem;">{{ dev.last_discovered_at|timesince }} ago</td>
-            <td class="text-end">
+            <td class="text-end text-nowrap">
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary py-0 px-2 me-1"
+                      style="font-size:.7rem;"
+                      onclick="toggleDeviceDetails('dev-details-{{ dev.id }}')">
+                Details / Edit
+              </button>
+              <button type="submit" name="action" value="refresh_identification"
+                      class="btn btn-sm btn-outline-info py-0 px-2 me-1"
+                      style="font-size:.7rem;"
+                      title="Retry hostname & IEEE OUI identification for {{ dev.ip_address }}"
+                      onclick="document.getElementById('single-delete-id').value='{{ dev.id }}';">
+                Refresh
+              </button>
               <button type="submit" name="action" value="delete_single"
                       class="btn btn-sm btn-outline-danger py-0 px-2"
                       style="font-size:.7rem;"
@@ -320,9 +383,73 @@
               </button>
             </td>
           </tr>
+          <!-- Expandable Device Details & Manual Override Drawer -->
+          <tr id="dev-details-{{ dev.id }}" style="display:none;background:rgba(14,165,233,.04);">
+            <td colspan="9" class="p-3">
+              <div class="row g-3" style="font-size:.77rem;">
+                <div class="col-md-4">
+                  <div class="fw-bold text-info mb-1">Hostname Discovery Evidence</div>
+                  <div><strong>Active Hostname:</strong> {{ dev.hostname|default:"Hostname not resolved" }}</div>
+                  <div><strong>Primary Source:</strong> {{ dev.get_hostname_source_display }} {% if dev.hostname_manually_set %}(Manually Assigned){% endif %}</div>
+                  <div><strong>Last Resolved:</strong> {% if dev.last_hostname_resolved_at %}{{ dev.last_hostname_resolved_at|date:"Y-m-d H:i:s" }}{% else %}Never{% endif %}</div>
+                  <div class="mt-1"><strong>All Discovered Hostnames:</strong>
+                    {% if dev.discovered_hostnames %}
+                      <ul class="mb-0 ps-3 mt-1">
+                        {% for src_key, hn_val in dev.discovered_hostnames.items %}
+                          <li><code>{{ src_key|upper }}</code>: {{ hn_val }}</li>
+                        {% endfor %}
+                      </ul>
+                    {% else %}
+                      <span class="text-muted">None reported via PTR, DHCP, NetBIOS, mDNS, LLMNR, or SNMP</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="fw-bold text-info mb-1">IEEE MAC Vendor & Fingerprinting</div>
+                  <div><strong>MAC Address Type:</strong> {{ dev.get_mac_address_type_display }}</div>
+                  <div><strong>Registered MAC Vendor:</strong> {{ dev.mac_vendor_display }}</div>
+                  <div><strong>Estimated Device Brand:</strong> {{ dev.estimated_brand|default:"Not inferred (NIC/Chipset or LAA)" }}</div>
+                  <div><strong>Classification Evidence:</strong> <span class="text-muted">{{ dev.classification_reason|default:"Identification Pending" }}</span></div>
+                  <div><strong>Discovery Methods:</strong> <span class="text-uppercase text-info">{{ dev.discovery_methods }}</span></div>
+                  <div><strong>Last Vendor Lookup:</strong> {% if dev.last_vendor_lookup_at %}{{ dev.last_vendor_lookup_at|date:"Y-m-d H:i:s" }}{% else %}—{% endif %}</div>
+                  <div><strong>Last Seen:</strong> {{ dev.last_discovered_at|date:"Y-m-d H:i:s" }}</div>
+                </div>
+                <div class="col-md-4">
+                  <div class="fw-bold text-info mb-1">Manual Override (Hostname / Type / Trust)</div>
+                  <div class="mb-2">
+                    <label class="form-label mb-1 text-muted" style="font-size:.7rem;">Manual Hostname</label>
+                    <input type="text" id="edit-hn-{{ dev.id }}" value="{{ dev.hostname }}"
+                           class="form-control form-control-sm" placeholder="Enter custom hostname..." />
+                  </div>
+                  <div class="row g-2 mb-2">
+                    <div class="col-6">
+                      <label class="form-label mb-1 text-muted" style="font-size:.7rem;">Device Type</label>
+                      <select id="edit-type-{{ dev.id }}" class="form-select form-select-sm">
+                        {% for val, label in device_type_choices %}
+                        <option value="{{ val }}" {% if dev.device_type == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label class="form-label mb-1 text-muted" style="font-size:.7rem;">Trust State</label>
+                      <select id="edit-trust-{{ dev.id }}" class="form-select form-select-sm">
+                        {% for val, label in trust_choices %}
+                        <option value="{{ val }}" {% if dev.trust_status == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-noc-primary w-100"
+                          onclick="submitDeviceOverride('{{ dev.id }}')">
+                    Save Manual Overrides
+                  </button>
+                </div>
+              </div>
+            </td>
+          </tr>
           {% empty %}
           <tr>
-            <td colspan="12" class="text-center py-4 text-muted">
+            <td colspan="9" class="text-center py-4 text-muted">
               No discovered hosts match the current filter. Select a network interface and click <strong>Start Scan</strong> above.
             </td>
           </tr>
@@ -589,6 +716,30 @@
         cb.checked = selectAllBox.checked;
       });
     });
+  }
+
+  function toggleDeviceDetails(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    row.style.display = row.style.display === "none" ? "table-row" : "none";
+  }
+
+  function submitDeviceOverride(devId) {
+    const form = document.getElementById("bulk-register-form");
+    if (!form) return;
+    document.getElementById("single-delete-id").value = devId;
+    const hnInput = document.getElementById("edit-hn-" + devId);
+    const typeSelect = document.getElementById("edit-type-" + devId);
+    const trustSelect = document.getElementById("edit-trust-" + devId);
+    if (hnInput) document.getElementById("override-hostname-input").value = hnInput.value;
+    if (typeSelect) document.getElementById("override-type-input").value = typeSelect.value;
+    if (trustSelect) document.getElementById("override-trust-input").value = trustSelect.value;
+    const hiddenAction = document.createElement("input");
+    hiddenAction.type = "hidden";
+    hiddenAction.name = "action";
+    hiddenAction.value = "update_device";
+    form.appendChild(hiddenAction);
+    form.submit();
   }
 </script>
 {% endblock %}

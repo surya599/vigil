@@ -325,12 +325,70 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
             _log_audit(request.user, "clear_discovered_inventory", "DiscoveredDevice", f"{total_count} devices", "Cleared all discovered inventory", request)
             messages.success(request, f"Cleared all {total_count} device(s) from Discovered Network Inventory.")
 
+        elif action_type == "refresh_identification":
+            from devices.discovery import NetworkDiscoveryEngine
+            from concurrent.futures import ThreadPoolExecutor
+
+            single_id = request.POST.get("discovered_id", "").strip()
+            selected_ids = [int(i) for i in request.POST.getlist("discovered_ids") if str(i).isdigit()]
+            if single_id and single_id.isdigit():
+                targets = list(DiscoveredDevice.objects.filter(pk=int(single_id)))
+            elif selected_ids:
+                targets = list(DiscoveredDevice.objects.filter(pk__in=selected_ids))
+            else:
+                targets = list(DiscoveredDevice.objects.all()[:100])
+
+            if not targets:
+                messages.info(request, "No discovered devices available to refresh.")
+                return redirect("devices:discovery")
+
+            def _refresh_one(dev_obj):
+                from django.db import close_old_connections
+                close_old_connections()
+                return NetworkDiscoveryEngine.refresh_single_device_identification(dev_obj, probe_network=True)
+
+            with ThreadPoolExecutor(max_workers=min(16, len(targets))) as pool:
+                list(pool.map(_refresh_one, targets))
+
+            _log_audit(request.user, "refresh_device_identification", "DiscoveredDevice", f"{len(targets)} devices", "", request)
+            messages.success(
+                request,
+                f"Refreshed multi-method hostname & IEEE MAC OUI vendor identification for {len(targets)} device(s).",
+            )
+
         elif action_type == "update_device":
+            from devices.hostname_resolver import HostnameResolver
+
             disc_id = request.POST.get("discovered_id")
             new_trust = request.POST.get("trust_status")
             new_type = request.POST.get("device_type")
+            custom_hostname = request.POST.get("custom_hostname")
             if disc_id and str(disc_id).isdigit():
                 d_dev = get_object_or_404(DiscoveredDevice, pk=int(disc_id))
+                if custom_hostname is not None:
+                    cleaned_hn = custom_hostname.strip()
+                    if cleaned_hn:
+                        if not HostnameResolver.is_valid_hostname(cleaned_hn, ip_address=d_dev.ip_address):
+                            messages.error(request, f"Invalid hostname '{cleaned_hn}' (cannot be an IP address or malformed label).")
+                            return redirect("devices:discovery")
+                        if cleaned_hn != d_dev.hostname or not d_dev.hostname_manually_set:
+                            old_hn = d_dev.hostname
+                            d_dev.hostname = cleaned_hn
+                            d_dev.hostname_source = DiscoveredDevice.HostnameSource.MANUAL
+                            d_dev.hostname_manually_set = True
+                            d_dev.last_hostname_resolved_at = timezone.now()
+                            dh = dict(d_dev.discovered_hostnames or {})
+                            dh["manual"] = cleaned_hn
+                            d_dev.discovered_hostnames = dh
+                            if old_hn and old_hn != cleaned_hn:
+                                NetworkChangeEvent.objects.create(
+                                    discovered_device=d_dev,
+                                    event_type=NetworkChangeEvent.EventType.HOSTNAME_CHANGED,
+                                    severity=NetworkChangeEvent.Severity.INFO,
+                                    previous_value=old_hn,
+                                    new_value=cleaned_hn,
+                                    description=f"Operator {request.user.username} manually assigned hostname '{cleaned_hn}' to {d_dev.ip_address}.",
+                                )
                 if new_trust in dict(DiscoveredDevice.TrustStatus.choices):
                     d_dev.trust_status = new_trust
                     if new_trust == DiscoveredDevice.TrustStatus.MONITORED:
@@ -340,6 +398,7 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
                     d_dev.device_type = new_type
                     d_dev.type_manually_set = True
                     d_dev.confidence_score = 100
+                    d_dev.identification_status = DiscoveredDevice.IdentificationStatus.MANUAL
                     d_dev.classification_reason = f"Manually classified by {request.user.username}"
                     NetworkChangeEvent.objects.create(
                         discovered_device=d_dev,
@@ -350,7 +409,7 @@ class NetworkDiscoveryView(LoginRequiredMixin, TemplateView):
                         description=f"Operator {request.user.username} manually updated device type for {d_dev.ip_address} from '{old_t}' to '{new_type}'.",
                     )
                 d_dev.save()
-                _log_audit(request.user, "update_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"trust={d_dev.trust_status}, type={d_dev.device_type}", request)
+                _log_audit(request.user, "update_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"hostname={d_dev.hostname}, trust={d_dev.trust_status}, type={d_dev.device_type}", request)
                 messages.success(request, f"Updated inventory record for {d_dev.ip_address}.")
 
         return redirect("devices:discovery")
@@ -527,11 +586,40 @@ class DiscoveredDeviceViewSet(viewsets.ModelViewSet):
     def classify(self, request, pk=None):
         """
         POST /api/discovery/devices/<pk>/classify/
-        Allows an operator to manually set trust_status and/or device_type.
+        Allows an operator to manually set hostname, trust_status, and/or device_type.
         """
+        from devices.hostname_resolver import HostnameResolver
+
         d_dev = self.get_object()
         new_trust = request.data.get("trust_status")
         new_type = request.data.get("device_type")
+        new_hostname = request.data.get("hostname")
+
+        if new_hostname is not None:
+            cleaned_hn = str(new_hostname).strip()
+            if cleaned_hn:
+                if not HostnameResolver.is_valid_hostname(cleaned_hn, ip_address=d_dev.ip_address):
+                    return Response(
+                        {"error": f"Invalid hostname '{cleaned_hn}'. Never assign an IP address as a hostname."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                old_hn = d_dev.hostname
+                d_dev.hostname = cleaned_hn
+                d_dev.hostname_source = DiscoveredDevice.HostnameSource.MANUAL
+                d_dev.hostname_manually_set = True
+                d_dev.last_hostname_resolved_at = timezone.now()
+                dh = dict(d_dev.discovered_hostnames or {})
+                dh["manual"] = cleaned_hn
+                d_dev.discovered_hostnames = dh
+                if old_hn and old_hn != cleaned_hn:
+                    NetworkChangeEvent.objects.create(
+                        discovered_device=d_dev,
+                        event_type=NetworkChangeEvent.EventType.HOSTNAME_CHANGED,
+                        severity=NetworkChangeEvent.Severity.INFO,
+                        previous_value=old_hn,
+                        new_value=cleaned_hn,
+                        description=f"Operator {request.user.username} manually assigned hostname '{cleaned_hn}' to {d_dev.ip_address}.",
+                    )
 
         if new_trust and new_trust in dict(DiscoveredDevice.TrustStatus.choices):
             d_dev.trust_status = new_trust
@@ -543,6 +631,7 @@ class DiscoveredDeviceViewSet(viewsets.ModelViewSet):
             d_dev.device_type = new_type
             d_dev.type_manually_set = True
             d_dev.confidence_score = 100
+            d_dev.identification_status = DiscoveredDevice.IdentificationStatus.MANUAL
             d_dev.classification_reason = f"Manually classified by {request.user.username}"
             NetworkChangeEvent.objects.create(
                 discovered_device=d_dev,
@@ -554,8 +643,52 @@ class DiscoveredDeviceViewSet(viewsets.ModelViewSet):
             )
 
         d_dev.save()
-        _log_audit(request.user, "api_classify_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"trust={d_dev.trust_status}, type={d_dev.device_type}", request)
+        _log_audit(request.user, "api_classify_discovered_device", "DiscoveredDevice", d_dev.ip_address, f"hostname={d_dev.hostname}, trust={d_dev.trust_status}, type={d_dev.device_type}", request)
         return Response(DiscoveredDeviceSerializer(d_dev).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="refresh-identification")
+    def refresh_identification(self, request, pk=None):
+        """
+        POST /api/discovery/devices/<pk>/refresh-identification/
+        Retries multi-method hostname resolution and IEEE OUI vendor identification
+        for a single discovered device without requiring a full network scan.
+        """
+        from devices.discovery import NetworkDiscoveryEngine
+
+        d_dev = self.get_object()
+        probe_net = bool(request.data.get("probe_network", True))
+        NetworkDiscoveryEngine.refresh_single_device_identification(d_dev, probe_network=probe_net)
+        d_dev.refresh_from_db()
+        _log_audit(request.user, "api_refresh_identification", "DiscoveredDevice", d_dev.ip_address, "", request)
+        return Response(DiscoveredDeviceSerializer(d_dev).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="refresh-all")
+    def refresh_all_identifications(self, request):
+        """
+        POST /api/discovery/devices/refresh-all/
+        Retries hostname & IEEE OUI vendor identification across selected or all discovered devices.
+        """
+        from devices.discovery import NetworkDiscoveryEngine
+        from concurrent.futures import ThreadPoolExecutor
+
+        ids = request.data.get("ids")
+        probe_net = bool(request.data.get("probe_network", True))
+        if ids:
+            targets = list(DiscoveredDevice.objects.filter(id__in=ids))
+        else:
+            targets = list(DiscoveredDevice.objects.all()[:100])
+
+        def _refresh_one(dev_obj):
+            from django.db import close_old_connections
+            close_old_connections()
+            return NetworkDiscoveryEngine.refresh_single_device_identification(dev_obj, probe_network=probe_net)
+
+        if targets:
+            with ThreadPoolExecutor(max_workers=min(16, len(targets))) as pool:
+                list(pool.map(_refresh_one, targets))
+
+        _log_audit(request.user, "api_refresh_all_identifications", "DiscoveredDevice", f"{len(targets)} devices", "", request)
+        return Response({"refreshed_count": len(targets)}, status=status.HTTP_200_OK)
 
 
 class NetworkChangeEventViewSet(viewsets.ReadOnlyModelViewSet):

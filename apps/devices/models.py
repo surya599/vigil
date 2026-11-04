@@ -19,15 +19,18 @@ class Device(models.Model):
     class DeviceType(models.TextChoices):
         ROUTER = "router", "Router"
         SWITCH = "switch", "Switch"
-        SERVER = "server", "Server"
-        FIREWALL = "firewall", "Firewall"
-        ACCESS_POINT = "access_point", "Access Point"
-        WORKSTATION = "workstation", "Workstation"
+        ACCESS_POINT = "access_point", "Wireless Access Point"
         LAPTOP = "laptop", "Laptop"
         DESKTOP = "desktop", "Desktop"
-        MOBILE = "mobile", "Mobile Phone"
+        SMARTPHONE = "smartphone", "Smartphone"
+        TABLET = "tablet", "Tablet"
         PRINTER = "printer", "Printer"
+        SERVER = "server", "Server"
+        IOT = "iot", "IoT Device"
+        FIREWALL = "firewall", "Firewall"
         APPLIANCE = "appliance", "Network Appliance"
+        WORKSTATION = "workstation", "Workstation"
+        MOBILE = "mobile", "Mobile Phone"
         UNKNOWN = "unknown", "Unknown Device"
         OTHER = "other", "Other"
 
@@ -322,6 +325,31 @@ class DiscoveredDevice(models.Model):
         IGNORED = "ignored", "Ignored"
         MONITORED = "monitored", "Monitored"
 
+    class HostnameSource(models.TextChoices):
+        MANUAL = "manual", "Manual Override"
+        SNMP = "snmp", "SNMP sysName"
+        LOCAL = "local", "Local Host OS"
+        DHCP = "dhcp", "Router DHCP / DNS"
+        PTR = "ptr", "Reverse DNS (PTR)"
+        MDNS = "mdns", "mDNS (.local)"
+        NETBIOS = "netbios", "NetBIOS (NBNS)"
+        LLMNR = "llmnr", "LLMNR"
+        NMAP = "nmap", "Nmap Discovery"
+        NONE = "none", "Not Resolved"
+
+    class MacAddressType(models.TextChoices):
+        GLOBAL = "global", "Globally Administered (IEEE OUI)"
+        LOCALLY_ADMINISTERED = "locally_administered", "Locally Administered MAC"
+        RANDOMIZED_LIKELY = "randomized_likely", "Randomized / Private MAC (likely)"
+        MULTICAST = "multicast", "Multicast MAC"
+        UNKNOWN = "unknown", "Unknown"
+
+    class IdentificationStatus(models.TextChoices):
+        IDENTIFIED = "identified", "Identified"
+        PARTIAL = "partial", "Partial Identification"
+        PENDING = "pending", "Identification Pending"
+        MANUAL = "manual", "Manually Verified"
+
     ip_address = models.GenericIPAddressField(
         protocol="both",
         unpack_ipv4=False,
@@ -335,7 +363,42 @@ class DiscoveredDevice(models.Model):
         db_index=True,
     )
     hostname = models.CharField(max_length=150, blank=True)
-    manufacturer = models.CharField(max_length=120, blank=True)
+    hostname_source = models.CharField(
+        max_length=30,
+        choices=HostnameSource.choices,
+        default=HostnameSource.NONE,
+        blank=True,
+    )
+    hostname_manually_set = models.BooleanField(
+        default=False,
+        help_text="True if an operator manually assigned this hostname",
+    )
+    discovered_hostnames = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Dictionary of all hostnames resolved per method (e.g. {'netbios': 'PC1', 'ptr': 'pc1.lan'})",
+    )
+    mac_address_type = models.CharField(
+        max_length=30,
+        choices=MacAddressType.choices,
+        default=MacAddressType.UNKNOWN,
+        blank=True,
+    )
+    mac_vendor = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="Registered IEEE MAC vendor or LAA status",
+    )
+    manufacturer = models.CharField(max_length=150, blank=True)
+    estimated_brand = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Estimated device brand (distinct from NIC/wireless chipset manufacturer)",
+    )
+    is_chipset_oem = models.BooleanField(
+        default=False,
+        help_text="True if the MAC vendor is a network interface/chipset OEM (Intel, MediaTek, AltoBeam, etc.)",
+    )
     device_type = models.CharField(
         max_length=30,
         choices=Device.DeviceType.choices,
@@ -351,6 +414,12 @@ class DiscoveredDevice(models.Model):
         help_text="Identification confidence percentage (0 to 100)",
     )
     classification_reason = models.CharField(max_length=255, blank=True)
+    identification_status = models.CharField(
+        max_length=25,
+        choices=IdentificationStatus.choices,
+        default=IdentificationStatus.PENDING,
+        db_index=True,
+    )
     discovery_methods = models.CharField(
         max_length=120,
         default="arp,icmp",
@@ -384,6 +453,8 @@ class DiscoveredDevice(models.Model):
         blank=True,
         related_name="devices_found",
     )
+    last_hostname_resolved_at = models.DateTimeField(null=True, blank=True)
+    last_vendor_lookup_at = models.DateTimeField(null=True, blank=True)
     first_discovered_at = models.DateTimeField(auto_now_add=True)
     last_discovered_at = models.DateTimeField(default=timezone.now, db_index=True)
 
@@ -407,7 +478,17 @@ class DiscoveredDevice(models.Model):
             return "Medium"
         if self.confidence_score > 0:
             return "Low"
-        return "Unverified"
+        return "Unknown"
+
+    @property
+    def mac_vendor_display(self) -> str:
+        if self.mac_vendor:
+            return self.mac_vendor
+        if self.manufacturer:
+            return self.manufacturer
+        if self.mac_address_type in (self.MacAddressType.LOCALLY_ADMINISTERED, self.MacAddressType.RANDOMIZED_LIKELY):
+            return "Locally Administered MAC"
+        return "Unknown Vendor"
 
     @property
     def is_monitored(self) -> bool:

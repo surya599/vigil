@@ -94,6 +94,10 @@ class DiscoveryScanSerializer(serializers.ModelSerializer):
 class DiscoveredDeviceSerializer(serializers.ModelSerializer):
     device_type_display = serializers.CharField(source="get_device_type_display", read_only=True)
     trust_status_display = serializers.CharField(source="get_trust_status_display", read_only=True)
+    hostname_source_display = serializers.CharField(source="get_hostname_source_display", read_only=True)
+    mac_address_type_display = serializers.CharField(source="get_mac_address_type_display", read_only=True)
+    identification_status_display = serializers.CharField(source="get_identification_status_display", read_only=True)
+    mac_vendor_display = serializers.CharField(read_only=True)
     confidence_label = serializers.CharField(read_only=True)
     is_monitored = serializers.BooleanField(read_only=True)
 
@@ -103,14 +107,26 @@ class DiscoveredDeviceSerializer(serializers.ModelSerializer):
             "id",
             "ip_address",
             "mac_address",
-            "hostname",
+            "mac_address_type",
+            "mac_address_type_display",
+            "mac_vendor",
+            "mac_vendor_display",
             "manufacturer",
+            "estimated_brand",
+            "is_chipset_oem",
+            "hostname",
+            "hostname_source",
+            "hostname_source_display",
+            "hostname_manually_set",
+            "discovered_hostnames",
             "device_type",
             "device_type_display",
             "type_manually_set",
             "confidence_score",
             "confidence_label",
             "classification_reason",
+            "identification_status",
+            "identification_status_display",
             "discovery_methods",
             "is_reachable",
             "latency_ms",
@@ -123,6 +139,8 @@ class DiscoveredDeviceSerializer(serializers.ModelSerializer):
             "trust_status_display",
             "is_monitored",
             "monitored_device",
+            "last_hostname_resolved_at",
+            "last_vendor_lookup_at",
             "first_discovered_at",
             "last_discovered_at",
         )

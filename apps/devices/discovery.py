@@ -24,6 +24,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from django.utils import timezone
 
+from devices.hostname_resolver import HostnameResolver
 from devices.identification import DeviceIdentificationEngine
 from devices.network_interfaces import NetworkInterfaceDetector
 from monitoring.icmp import ICMPChecker
@@ -42,11 +43,18 @@ class DiscoveredHostRecord:
     ip_address: str
     mac_address: Optional[str] = None
     hostname: str = ""
+    hostname_source: str = "none"
+    discovered_hostnames: Dict[str, str] = field(default_factory=dict)
+    mac_address_type: str = "unknown"
+    mac_vendor: str = ""
     manufacturer: str = ""
+    estimated_brand: str = ""
+    is_chipset_oem: bool = False
     device_type: str = "unknown"
     confidence_score: int = 0
-    confidence_label: str = "Unverified"
+    confidence_label: str = "Unknown"
     classification_reason: str = ""
+    identification_status: str = "pending"
     discovery_methods: List[str] = field(default_factory=list)
     is_reachable: bool = True
     latency_ms: Optional[float] = None
@@ -197,11 +205,9 @@ class NetworkDiscoveryEngine:
         """Resolves hostname via reverse DNS PTR lookup without blocking indefinitely."""
         try:
             hostname, _, _ = socket.gethostbyaddr(ip_address)
-            if hostname and hostname != ip_address:
-                return hostname.rstrip(".")
+            return HostnameResolver.clean_hostname(hostname, ip_address=ip_address)
         except Exception:
-            pass
-        return ""
+            return ""
 
     def probe_tcp_ports(self, ip_address: str, ports: Tuple[int, ...] = COMMON_DISCOVERY_PORTS) -> List[int]:
         """Checks a small set of authorized management/service TCP ports on a host."""
@@ -340,8 +346,9 @@ class NetworkDiscoveryEngine:
             if host_ips_override is None or ip_str in target_ips:
                 active_ips.add(ip_str)
 
-        # Stage 4: Concurrently enrich discovered hosts (Reverse DNS, TCP Ports, MAC OUI, Classification)
+        # Stage 4: Concurrently enrich discovered hosts (Multi-Method Hostname, TCP Ports, IEEE OUI, Fingerprinting)
         sorted_active_ips = sorted(active_ips, key=lambda x: tuple(int(p) for p in x.split(".")))
+        system_dns_servers = HostnameResolver.get_system_dns_servers()
 
         def _enrich_active_host(ip_str: str) -> DiscoveredHostRecord:
             methods: List[str] = []
@@ -365,31 +372,57 @@ class NetworkDiscoveryEngine:
             if open_ports:
                 methods.append("port")
 
-            if ip_str in local_ip_map:
-                hostname = socket.gethostname()
-            else:
-                hostname = self.resolve_reverse_dns(ip_str)
+            is_local = ip_str in local_ip_map
+            hn_res = HostnameResolver.resolve_all(
+                ip_address=ip_str,
+                is_local_host=is_local,
+                gateway_ip=inferred_gateway,
+                dns_servers=system_dns_servers,
+                enable_snmp=self.enable_snmp_probe,
+                snmp_community=self.snmp_community,
+                timeout=0.55,
+            )
+            # Also honor `self.resolve_reverse_dns` if no PTR record was returned yet
+            if "ptr" not in hn_res.all_hostnames and not is_local:
+                fallback_ptr = self.resolve_reverse_dns(ip_str)
+                if fallback_ptr:
+                    hn_res.all_hostnames["ptr"] = fallback_ptr
+                    if not hn_res.hostname:
+                        hn_res.hostname = fallback_ptr
+                        hn_res.source = "ptr"
+
+            hostname = hn_res.hostname
+            hostname_source = hn_res.source if hostname else "none"
             if hostname:
-                methods.append("dns")
+                methods.append("dns" if hostname_source == "ptr" else hostname_source)
 
             classification = DeviceIdentificationEngine.identify_device(
                 ip_address=ip_str,
                 mac_address=mac_addr,
                 hostname=hostname,
+                hostname_source=hostname_source,
+                all_hostnames=hn_res.all_hostnames,
                 open_ports=open_ports,
                 is_gateway=(ip_str == inferred_gateway),
-                is_local_host=(ip_str in local_ip_map),
+                is_local_host=is_local,
             )
 
             return DiscoveredHostRecord(
                 ip_address=ip_str,
                 mac_address=mac_addr,
                 hostname=hostname,
+                hostname_source=hostname_source,
+                discovered_hostnames=hn_res.all_hostnames,
+                mac_address_type=classification.mac_address_type,
+                mac_vendor=classification.mac_vendor,
                 manufacturer=classification.manufacturer,
+                estimated_brand=classification.estimated_brand,
+                is_chipset_oem=classification.is_chipset_oem,
                 device_type=classification.device_type,
                 confidence_score=classification.confidence_score,
                 confidence_label=classification.confidence_label,
                 classification_reason=classification.reason,
+                identification_status=classification.identification_status,
                 discovery_methods=methods or ["arp"],
                 is_reachable=True,
                 latency_ms=round(latency_ms, 2) if latency_ms is not None else None,
@@ -415,6 +448,107 @@ class NetworkDiscoveryEngine:
         return discovered_records
 
     @classmethod
+    def refresh_single_device_identification(cls, discovered_device, probe_network: bool = True) -> dict:
+        """
+        Re-runs multi-method hostname discovery (PTR, Router DHCP/DNS, NetBIOS,
+        mDNS, LLMNR, SNMP) and authoritative IEEE OUI vendor lookup + fingerprinting
+        for an existing `DiscoveredDevice` without requiring a full subnet scan.
+        Preserves manual overrides and previously resolved hostnames if currently offline.
+        """
+        now = timezone.now()
+        ip_str = discovered_device.ip_address
+        local_ifaces = NetworkInterfaceDetector.detect_interfaces(include_loopback=True)
+        local_ips = {lif.ipv4_address: lif for lif in local_ifaces}
+        is_local = ip_str in local_ips
+        gateway_ip = None
+        for lif in local_ifaces:
+            if lif.default_gateway:
+                gateway_ip = lif.default_gateway
+                break
+        if not gateway_ip and "." in ip_str:
+            parts = ip_str.split(".")
+            gateway_ip = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
+
+        # Refresh MAC from OS ARP cache if missing
+        mac_addr = discovered_device.mac_address
+        if not mac_addr and probe_network:
+            os_arp = cls.read_os_arp_table()
+            if ip_str in os_arp:
+                mac_addr = os_arp[ip_str]
+                discovered_device.mac_address = mac_addr
+
+        open_ports = [int(p) for p in discovered_device.open_ports.split(",") if p.strip().isdigit()]
+        all_hostnames = dict(discovered_device.discovered_hostnames or {})
+
+        if probe_network:
+            hn_res = HostnameResolver.resolve_all(
+                ip_address=ip_str,
+                is_local_host=is_local,
+                gateway_ip=gateway_ip,
+                enable_snmp=bool(discovered_device.sys_object_id or discovered_device.sys_description),
+                timeout=0.7,
+            )
+            for src, val in hn_res.all_hostnames.items():
+                if val:
+                    all_hostnames[src] = val
+
+            if hn_res.hostname and not discovered_device.hostname_manually_set:
+                discovered_device.hostname = hn_res.hostname
+                discovered_device.hostname_source = hn_res.source
+                discovered_device.last_hostname_resolved_at = now
+            elif discovered_device.hostname and discovered_device.hostname_source in ("", "none"):
+                discovered_device.hostname_source = "manual" if discovered_device.hostname_manually_set else "ptr"
+
+        discovered_device.discovered_hostnames = all_hostnames
+
+        is_gw = (ip_str == gateway_ip) or ip_str.endswith(".1")
+        classification = DeviceIdentificationEngine.identify_device(
+            ip_address=ip_str,
+            mac_address=mac_addr,
+            hostname=discovered_device.hostname,
+            hostname_source=discovered_device.hostname_source,
+            all_hostnames=all_hostnames,
+            sys_description=discovered_device.sys_description,
+            sys_object_id=discovered_device.sys_object_id,
+            open_ports=open_ports,
+            is_gateway=is_gw,
+            is_local_host=is_local,
+        )
+
+        discovered_device.mac_address_type = classification.mac_address_type
+        discovered_device.mac_vendor = classification.mac_vendor
+        discovered_device.manufacturer = classification.manufacturer
+        discovered_device.estimated_brand = classification.estimated_brand
+        discovered_device.is_chipset_oem = classification.is_chipset_oem
+        if mac_addr:
+            discovered_device.last_vendor_lookup_at = now
+
+        if not discovered_device.type_manually_set:
+            discovered_device.device_type = classification.device_type
+            discovered_device.confidence_score = classification.confidence_score
+            discovered_device.classification_reason = classification.reason
+            discovered_device.identification_status = classification.identification_status
+        else:
+            discovered_device.identification_status = "manual"
+
+        discovered_device.save()
+        return {
+            "id": discovered_device.id,
+            "ip_address": discovered_device.ip_address,
+            "mac_address": discovered_device.mac_address,
+            "mac_address_type": discovered_device.mac_address_type,
+            "mac_vendor": discovered_device.mac_vendor,
+            "estimated_brand": discovered_device.estimated_brand,
+            "hostname": discovered_device.hostname,
+            "hostname_source": discovered_device.hostname_source,
+            "discovered_hostnames": discovered_device.discovered_hostnames,
+            "device_type": discovered_device.device_type,
+            "confidence_score": discovered_device.confidence_score,
+            "confidence_label": discovered_device.confidence_label,
+            "identification_status": discovered_device.identification_status,
+        }
+
+    @classmethod
     def sync_discovered_inventory(
         cls,
         records: List[DiscoveredHostRecord],
@@ -432,9 +566,9 @@ class NetworkDiscoveryEngine:
         - MAC address changes for a known IP ('mac_changed')
         - Hostname changes ('hostname_changed')
         - Device type classification changes ('type_changed')
+        Preserves previously resolved valid hostnames and manual operator overrides.
         """
         from devices.models import Device, DiscoveredDevice, NetworkChangeEvent
-        from alerts.engine import AlertEngine
 
         now = timezone.now()
         new_count = 0
@@ -473,6 +607,21 @@ class NetworkDiscoveryEngine:
                 existing_by_mac.discovery_methods = methods_str
                 existing_by_mac.open_ports = ports_str
                 existing_by_mac.subnet_cidr = subnet_cidr or rec.subnet_cidr
+                if rec.mac_vendor:
+                    existing_by_mac.mac_vendor = rec.mac_vendor
+                    existing_by_mac.manufacturer = rec.manufacturer
+                    existing_by_mac.mac_address_type = rec.mac_address_type
+                    existing_by_mac.estimated_brand = rec.estimated_brand
+                    existing_by_mac.is_chipset_oem = rec.is_chipset_oem
+                    existing_by_mac.last_vendor_lookup_at = now
+                if rec.hostname and not existing_by_mac.hostname_manually_set:
+                    existing_by_mac.hostname = rec.hostname
+                    existing_by_mac.hostname_source = rec.hostname_source
+                    existing_by_mac.last_hostname_resolved_at = now
+                if rec.discovered_hostnames:
+                    merged_hn = dict(existing_by_mac.discovered_hostnames or {})
+                    merged_hn.update(rec.discovered_hostnames)
+                    existing_by_mac.discovered_hostnames = merged_hn
                 if scan_obj:
                     existing_by_mac.last_scan = scan_obj
                 if monitored:
@@ -489,7 +638,7 @@ class NetworkDiscoveryEngine:
                     previous_value=old_ip,
                     new_value=rec.ip_address,
                     description=(
-                        f"Device with MAC {rec.mac_address} ({existing_by_mac.hostname or existing_by_mac.manufacturer or 'Host'}) "
+                        f"Device with MAC {rec.mac_address} ({existing_by_mac.hostname or existing_by_mac.mac_vendor or 'Host'}) "
                         f"changed IP address from {old_ip} to {rec.ip_address}."
                     ),
                 )
@@ -508,10 +657,17 @@ class NetworkDiscoveryEngine:
                     ip_address=rec.ip_address,
                     mac_address=rec.mac_address,
                     hostname=rec.hostname,
-                    manufacturer=rec.manufacturer,
+                    hostname_source=rec.hostname_source if rec.hostname else "none",
+                    discovered_hostnames=rec.discovered_hostnames or ({rec.hostname_source: rec.hostname} if rec.hostname else {}),
+                    mac_address_type=rec.mac_address_type,
+                    mac_vendor=rec.mac_vendor or rec.manufacturer,
+                    manufacturer=rec.manufacturer or rec.mac_vendor,
+                    estimated_brand=rec.estimated_brand,
+                    is_chipset_oem=rec.is_chipset_oem,
                     device_type=rec.device_type,
                     confidence_score=rec.confidence_score,
                     classification_reason=rec.classification_reason,
+                    identification_status=rec.identification_status,
                     discovery_methods=methods_str,
                     is_reachable=True,
                     latency_ms=rec.latency_ms,
@@ -522,6 +678,8 @@ class NetworkDiscoveryEngine:
                     interface_name=rec.interface_name,
                     trust_status=trust,
                     monitored_device=monitored,
+                    last_hostname_resolved_at=now if rec.hostname else None,
+                    last_vendor_lookup_at=now if rec.mac_address else None,
                     last_discovered_at=now,
                     last_scan=scan_obj,
                 )
@@ -536,7 +694,7 @@ class NetworkDiscoveryEngine:
                     new_value=rec.ip_address,
                     description=(
                         f"Newly discovered {target_dev.get_device_type_display()} at {rec.ip_address} "
-                        f"({rec.mac_address or 'MAC unknown'}, {rec.manufacturer or 'Vendor unknown'})."
+                        f"({rec.mac_address or 'MAC unknown'}, {target_dev.mac_vendor or 'Vendor unknown'})."
                     ),
                 )
                 changes_count += 1
@@ -570,23 +728,49 @@ class NetworkDiscoveryEngine:
                 elif rec.mac_address and not target_dev.mac_address:
                     target_dev.mac_address = rec.mac_address
 
-                # Detect Hostname change
-                if rec.hostname and target_dev.hostname and rec.hostname != target_dev.hostname:
-                    old_hn = target_dev.hostname
-                    target_dev.hostname = rec.hostname
-                    NetworkChangeEvent.objects.create(
-                        discovered_device=target_dev,
-                        event_type=NetworkChangeEvent.EventType.HOSTNAME_CHANGED,
-                        severity=NetworkChangeEvent.Severity.INFO,
-                        previous_value=old_hn,
-                        new_value=rec.hostname,
-                        description=f"Hostname for {target_dev.ip_address} changed from '{old_hn}' to '{rec.hostname}'.",
-                    )
-                    changes_count += 1
-                elif rec.hostname and not target_dev.hostname:
-                    target_dev.hostname = rec.hostname
+                # Merge all discovered hostnames
+                merged_hostnames = dict(target_dev.discovered_hostnames or {})
+                if rec.discovered_hostnames:
+                    merged_hostnames.update(rec.discovered_hostnames)
+                elif rec.hostname and rec.hostname_source and rec.hostname_source != "none":
+                    merged_hostnames[rec.hostname_source] = rec.hostname
+                target_dev.discovered_hostnames = merged_hostnames
 
-                # Detect Device Type upgrade (if not manually locked and confidence improved)
+                # Update or preserve Hostname (never overwrite manual override or wipe out known hostname when empty)
+                if rec.hostname and not target_dev.hostname_manually_set:
+                    if target_dev.hostname and rec.hostname != target_dev.hostname:
+                        old_hn = target_dev.hostname
+                        target_dev.hostname = rec.hostname
+                        target_dev.hostname_source = rec.hostname_source or "ptr"
+                        target_dev.last_hostname_resolved_at = now
+                        NetworkChangeEvent.objects.create(
+                            discovered_device=target_dev,
+                            event_type=NetworkChangeEvent.EventType.HOSTNAME_CHANGED,
+                            severity=NetworkChangeEvent.Severity.INFO,
+                            previous_value=old_hn,
+                            new_value=rec.hostname,
+                            description=f"Hostname for {target_dev.ip_address} changed from '{old_hn}' to '{rec.hostname}'.",
+                        )
+                        changes_count += 1
+                    elif not target_dev.hostname:
+                        target_dev.hostname = rec.hostname
+                        target_dev.hostname_source = rec.hostname_source or "ptr"
+                        target_dev.last_hostname_resolved_at = now
+                    else:
+                        target_dev.last_hostname_resolved_at = now
+                        if rec.hostname_source and rec.hostname_source != "none":
+                            target_dev.hostname_source = rec.hostname_source
+
+                # Update IEEE MAC vendor & MAC type fields
+                if rec.mac_address:
+                    target_dev.mac_address_type = rec.mac_address_type
+                    target_dev.mac_vendor = rec.mac_vendor or rec.manufacturer
+                    target_dev.manufacturer = rec.manufacturer or rec.mac_vendor
+                    target_dev.estimated_brand = rec.estimated_brand
+                    target_dev.is_chipset_oem = rec.is_chipset_oem
+                    target_dev.last_vendor_lookup_at = now
+
+                # Detect Device Type upgrade (if not manually locked)
                 if (
                     rec.device_type != "unknown"
                     and target_dev.device_type != rec.device_type
@@ -605,11 +789,13 @@ class NetworkDiscoveryEngine:
                         )
                         changes_count += 1
 
-                if rec.manufacturer and not target_dev.manufacturer:
-                    target_dev.manufacturer = rec.manufacturer
-                if rec.confidence_score > target_dev.confidence_score and not target_dev.type_manually_set:
-                    target_dev.confidence_score = rec.confidence_score
-                    target_dev.classification_reason = rec.classification_reason
+                if not target_dev.type_manually_set:
+                    if rec.confidence_score >= target_dev.confidence_score or target_dev.device_type == rec.device_type:
+                        target_dev.confidence_score = rec.confidence_score
+                        target_dev.classification_reason = rec.classification_reason
+                        target_dev.identification_status = rec.identification_status
+                else:
+                    target_dev.identification_status = "manual"
 
                 target_dev.is_reachable = True
                 target_dev.latency_ms = rec.latency_ms

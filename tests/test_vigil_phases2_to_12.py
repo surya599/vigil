@@ -131,12 +131,11 @@ class TestVigilPhase2InterfaceDetection:
 class TestVigilPhase3And4DiscoveryAndIdentification:
     def test_mac_vendor_lookup_and_device_classification(self):
         """Verifies MAC OUI vendor lookup and multi-signal confidence classification."""
-        vendor, hint = DeviceIdentificationEngine.lookup_mac_vendor("00:1A:2B:AA:BB:CC")
-        assert vendor == "Cisco Systems"
-        assert hint == "router"
+        vendor, _ = DeviceIdentificationEngine.lookup_mac_vendor("00:00:0C:AA:BB:CC")
+        assert "Cisco Systems" in vendor
 
         p_vendor, p_hint = DeviceIdentificationEngine.lookup_mac_vendor("30:05:5C:11:22:33")
-        assert p_vendor == "Brother Industries"
+        assert "Brother" in p_vendor
         assert p_hint == "printer"
 
         assert DeviceIdentificationEngine.lookup_mac_vendor("") == ("", None)
@@ -144,14 +143,14 @@ class TestVigilPhase3And4DiscoveryAndIdentification:
         # 1. Router via SNMP sysDescr + Gateway IP
         r_info = DeviceIdentificationEngine.identify_device(
             ip_address="10.0.114.1",
-            mac_address="00:1A:2B:10:20:30",
+            mac_address="00:00:0C:10:20:30",
             hostname="core-rtr-01.corp.local",
             sys_description="Cisco IOS XE Software, ASR1000 Router",
             sys_object_id="1.3.6.1.4.1.9.1.123",
             is_gateway=True,
         )
         assert r_info.device_type == Device.DeviceType.ROUTER
-        assert r_info.manufacturer == "Cisco Systems"
+        assert "Cisco Systems" in r_info.manufacturer
         assert r_info.confidence_score >= 85
 
         # 2. Printer via Port 9100 + MAC OUI
